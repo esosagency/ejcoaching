@@ -15,6 +15,13 @@
       "when": 1793424007822,
       "tag": "0001_content_persistence",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1793427439989,
+      "tag": "0002_phone_video_jobs",
+      "breakpoints": true
     }
   ]
 }

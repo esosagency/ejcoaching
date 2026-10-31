@@ -84,6 +84,11 @@ export function isSafeContentUrl(value: string): boolean {
   }
 }
 
+/** True only for a stable internal storage reference, never a signed URL. */
+export function isManagedStorageUrl(value: string): boolean {
+  return value.startsWith("/manus-storage/") && isSafeContentUrl(value);
+}
+
 /** Limits embeds to browser-safe, known video provider URL forms. */
 export function isRecognizedVideoEmbed(value: string): boolean {
   if (!isSafeContentUrl(value) || value.startsWith("/")) return false;
@@ -236,6 +241,14 @@ export const lessonInputSchema = z
       }
     }
 
+    if (value.videoType === "file" && !value.videoUrl) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["videoUrl"],
+        message: "Une vidéo prête à la lecture est requise.",
+      });
+    }
+
     const resourceIds = new Set<string>();
     for (const [index, resource] of value.resources.entries()) {
       if (resourceIds.has(resource.id)) {
@@ -336,6 +349,23 @@ export const uploadInputSchema = z
       });
     }
   });
+
+/**
+ * Generic uploads remain available for documents and images. Video originals
+ * must use the fenced video router and never become directly playable here.
+ */
+export const genericUploadInputSchema = uploadInputSchema.superRefine(
+  (value, ctx) => {
+    if (value.kind === "video") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["kind"],
+        message:
+          "Les vidéos doivent être téléversées avec le traitement vidéo sécurisé.",
+      });
+    }
+  }
+);
 
 export type ValidCourseInput = z.infer<typeof courseInputSchema> & CourseInput;
 export type ValidLessonInput = z.infer<typeof lessonInputSchema> & LessonInput;

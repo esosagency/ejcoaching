@@ -101,6 +101,10 @@ export const contentLessons = mysqlTable(
     videoType: mysqlEnum("videoType", ["demo", "file", "embed"])
       .notNull()
       .default("demo"),
+    /** Current native conversion job. It is fenced in the worker before attach. */
+    videoJobId: varchar("videoJobId", { length: 64 }),
+    /** Stable generated poster URL. Source-upload URLs are never stored here. */
+    videoPosterUrl: varchar("videoPosterUrl", { length: 2048 }),
     resources: json("resources")
       .$type<
         Array<{ id: string; title: string; url: string; filename?: string }>
@@ -122,6 +126,7 @@ export const contentLessons = mysqlTable(
       table.archivedAt,
       table.position
     ),
+    index("contentLessons_video_job_idx").on(table.videoJobId),
   ]
 );
 
@@ -141,7 +146,8 @@ export const contentUploads = mysqlTable(
     contentType: varchar("contentType", { length: 128 }).notNull(),
     size: int("size").notNull(),
     kind: mysqlEnum("kind", ["video", "image", "document"]).notNull(),
-    status: mysqlEnum("status", ["pending", "ready"])
+    /** `source` is verified original media and intentionally not playback-ready. */
+    status: mysqlEnum("status", ["pending", "source", "ready"])
       .notNull()
       .default("pending"),
     createdAt: datetime("createdAt")
@@ -157,6 +163,82 @@ export const contentUploads = mysqlTable(
   ]
 );
 
+/**
+ * Durable native phone-video work queue. Object keys remain in contentUploads;
+ * this table stores identifiers only so route DTOs cannot leak source locations.
+ */
+export const contentVideoJobs = mysqlTable(
+  "contentVideoJobs",
+  {
+    id: varchar("id", { length: 64 }).primaryKey(),
+    lessonId: varchar("lessonId", { length: 128 })
+      .notNull()
+      .references(() => contentLessons.id, {
+        onDelete: "restrict",
+        onUpdate: "cascade",
+      }),
+    ownerUserId: int("ownerUserId")
+      .notNull()
+      .references(() => users.id, {
+        onDelete: "restrict",
+        onUpdate: "cascade",
+      }),
+    sourceUploadId: varchar("sourceUploadId", { length: 64 })
+      .notNull()
+      .unique()
+      .references(() => contentUploads.id, {
+        onDelete: "restrict",
+        onUpdate: "cascade",
+      }),
+    status: mysqlEnum("status", [
+      "uploading",
+      "queued",
+      "processing",
+      "ready",
+      "failed",
+      "cancelled",
+    ])
+      .notNull()
+      .default("uploading"),
+    progress: int("progress").notNull().default(0),
+    filename: varchar("filename", { length: 255 }).notNull(),
+    pipelineVersion: int("pipelineVersion").notNull().default(1),
+    attempts: int("attempts").notNull().default(0),
+    /** Random token used to fence a stale worker after lease recovery/cancellation. */
+    leaseToken: varchar("leaseToken", { length: 64 }),
+    leaseExpiresAt: datetime("leaseExpiresAt"),
+    lastHeartbeatAt: datetime("lastHeartbeatAt"),
+    outputVideoUploadId: varchar("outputVideoUploadId", {
+      length: 64,
+    }).references(() => contentUploads.id, {
+      onDelete: "restrict",
+      onUpdate: "cascade",
+    }),
+    posterUploadId: varchar("posterUploadId", { length: 64 }).references(
+      () => contentUploads.id,
+      { onDelete: "restrict", onUpdate: "cascade" }
+    ),
+    durationSeconds: int("durationSeconds"),
+    error: varchar("error", { length: 1000 }),
+    createdAt: datetime("createdAt")
+      .default(sql`(CURRENT_TIMESTAMP)`)
+      .notNull(),
+    updatedAt: datetime("updatedAt")
+      .default(sql`(CURRENT_TIMESTAMP)`)
+      .notNull(),
+    finishedAt: datetime("finishedAt"),
+  },
+  table => [
+    index("contentVideoJobs_queue_idx").on(
+      table.status,
+      table.leaseExpiresAt,
+      table.createdAt
+    ),
+    index("contentVideoJobs_lesson_idx").on(table.lessonId, table.status),
+    index("contentVideoJobs_owner_idx").on(table.ownerUserId, table.createdAt),
+  ]
+);
+
 /** Named, one-time setup markers. Seed scripts insert a marker only after completing. */
 export const contentSetup = mysqlTable("contentSetup", {
   marker: varchar("marker", { length: 128 }).primaryKey(),
@@ -168,3 +250,4 @@ export const contentSetup = mysqlTable("contentSetup", {
 export type ContentCourseRow = typeof contentCourses.$inferSelect;
 export type ContentLessonRow = typeof contentLessons.$inferSelect;
 export type ContentUploadRow = typeof contentUploads.$inferSelect;
+export type ContentVideoJobRow = typeof contentVideoJobs.$inferSelect;

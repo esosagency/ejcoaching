@@ -3,6 +3,7 @@ import { getSessionCookieOptions } from './_core/cookies';
 import { systemRouter } from './_core/systemRouter';
 import { publicProcedure, router } from './_core/trpc';
 import { contentRouter } from './contentRouter';
+import { videoRouter } from './video/videoRouter';
 
 export const appRouter = router({
   system: systemRouter,
@@ -15,5 +16,6 @@ export const appRouter = router({
     }),
   }),
   content: contentRouter,
+  video: videoRouter,
 });
 export type AppRouter = typeof appRouter;

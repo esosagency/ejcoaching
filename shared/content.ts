@@ -1,5 +1,17 @@
-export type CourseIcon = 'nutrition' | 'training' | 'mindset' | 'deficit' | 'surplus' | 'equipment' | 'supplements';
-export type LessonResource = { id: string; title: string; url: string; filename?: string };
+export type CourseIcon =
+  | "nutrition"
+  | "training"
+  | "mindset"
+  | "deficit"
+  | "surplus"
+  | "equipment"
+  | "supplements";
+export type LessonResource = {
+  id: string;
+  title: string;
+  url: string;
+  filename?: string;
+};
 export type Lesson = {
   id: string;
   title: string;
@@ -7,7 +19,13 @@ export type Lesson = {
   description: string;
   takeaways: string[];
   videoUrl?: string;
-  videoType?: 'demo' | 'file' | 'embed';
+  videoType?: "demo" | "file" | "embed";
+  /** Current native conversion job; present only in administrator serializations. */
+  videoJobId?: string;
+  /** Stable URL for the generated JPEG poster, never a source-upload URL. */
+  videoPosterUrl?: string;
+  /** Public-safe indication that a replacement video is being converted. */
+  videoPending?: boolean;
   resources?: LessonResource[];
   position?: number;
   revision?: number;
@@ -22,7 +40,7 @@ export type Course = {
   image?: string;
   icon: CourseIcon;
   lessons: Lesson[];
-  status?: 'draft' | 'published';
+  status?: "draft" | "published";
   isSample?: boolean;
   position?: number;
   revision?: number;
@@ -36,7 +54,7 @@ export type CourseInput = {
   color: string;
   image?: string;
   icon: CourseIcon;
-  status: 'draft' | 'published';
+  status: "draft" | "published";
   isSample: boolean;
 };
 export type LessonInput = {
@@ -45,6 +63,6 @@ export type LessonInput = {
   description: string;
   takeaways: string[];
   videoUrl?: string;
-  videoType: 'demo' | 'file' | 'embed';
+  videoType: "demo" | "file" | "embed";
   resources: LessonResource[];
 };

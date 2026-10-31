@@ -7,6 +7,7 @@ import { publicPlatformScript } from './publicConfig';
 import { appRouter } from '../routers';
 import { contentReadiness } from '../contentDb';
 import { createContext } from './context';
+import { startVideoWorker, stopVideoWorker } from '../video/videoWorker';
 import { serveStatic, setupVite } from './vite';
 
 async function startServer() {
@@ -35,6 +36,27 @@ async function startServer() {
   const port = Number(process.env.PORT || '3000');
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid PORT');
   server.on('error', error => { console.error('Server failed:', error.message); process.exit(1); });
-  server.listen(port, '0.0.0.0', () => console.log(`Server listening on port ${port}`));
+  let stopping = false;
+  const shutdown = () => {
+    if (stopping) return;
+    stopping = true;
+    const hardStop = setTimeout(() => process.exit(0), 10_000);
+    hardStop.unref();
+    const closeServer = new Promise<void>(resolve => server.close(() => resolve()));
+    void Promise.all([stopVideoWorker(), closeServer]).finally(() => {
+      clearTimeout(hardStop);
+      process.exit(0);
+    });
+  };
+  process.once('SIGTERM', shutdown);
+  process.once('SIGINT', shutdown);
+  server.listen(port, '0.0.0.0', () => {
+    console.log(`Server listening on port ${port}`);
+    void contentReadiness().then(state => {
+      if (state.database && state.seeded) startVideoWorker();
+    }).catch(() => {
+      console.error('Video worker is waiting for database readiness.');
+    });
+  });
 }
 startServer().catch(error => { console.error(error); process.exit(1); });

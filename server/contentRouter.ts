@@ -24,6 +24,7 @@ import {
 } from "./contentDb";
 import {
   courseInputSchema,
+  genericUploadInputSchema,
   getUploadRule,
   idSchema,
   lessonInputSchema,
@@ -248,7 +249,7 @@ export const contentRouter = router({
     }),
 
   prepareUpload: adminProcedure
-    .input(uploadInputSchema)
+    .input(genericUploadInputSchema)
     .mutation(async ({ ctx, input }) => {
       const upload = await executeContent(() =>
         createPendingUpload(ctx.user.id, input)
@@ -265,6 +266,13 @@ export const contentRouter = router({
       const upload = await executeContent(() =>
         getOwnedUpload(input.id, ctx.user.id)
       );
+      if (upload.kind === "video") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Les vidéos doivent être confirmées par le traitement vidéo sécurisé.",
+        });
+      }
       const stable = await storageGet(upload.objectKey);
 
       if (upload.status === "ready") {

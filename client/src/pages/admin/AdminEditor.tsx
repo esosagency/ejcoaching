@@ -28,12 +28,13 @@ import type {
   LessonInput,
   LessonResource,
 } from "@shared/content";
+import type { VideoJobInfo } from "@shared/phoneVideo";
 import { parseVimeoUrl } from "@shared/vimeo";
 import AdminGate from "@/components/AdminGate";
+import PhoneVideoUpload from "@/components/admin/PhoneVideoUpload";
 import { trpc } from "@/lib/trpc";
 import "./Admin.css";
 
-const MAX_VIDEO_BYTES = 250 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_DOCUMENT_BYTES = 25 * 1024 * 1024;
 
@@ -47,7 +48,7 @@ const iconOptions: Array<{ value: CourseIcon; label: string }> = [
   { value: "supplements", label: "Suppléments" },
 ];
 
-type UploadTarget = "cover" | "video" | "documents";
+type UploadTarget = "cover" | "documents";
 type UploadState = { target: UploadTarget; progress: number; label: string };
 
 function emptyCourseInput(): CourseInput {
@@ -189,10 +190,6 @@ function isHttpsMp4Url(value: string) {
   }
 }
 
-function isMp4(file: File) {
-  return file.type === "video/mp4" || file.name.toLowerCase().endsWith(".mp4");
-}
-
 function isImage(file: File) {
   return ["image/jpeg", "image/png", "image/webp"].includes(file.type);
 }
@@ -276,6 +273,11 @@ function EditorContent() {
   const [resourceTitle, setResourceTitle] = useState("");
   const [resourceUrl, setResourceUrl] = useState("");
   const [documentTitle, setDocumentTitle] = useState("");
+  const [isPhoneVideoActive, setIsPhoneVideoActive] = useState(false);
+
+  useEffect(() => {
+    setIsPhoneVideoActive(false);
+  }, [selectedLessonId]);
 
   useEffect(() => {
     if (id !== loadedCourseId.current) {
@@ -286,6 +288,7 @@ function EditorContent() {
       setLessonOrder([]);
       setCourseFeedback(null);
       setLessonFeedback(null);
+      setIsPhoneVideoActive(false);
     }
   }, [id]);
 
@@ -410,8 +413,37 @@ function EditorContent() {
     setLessonFeedback(null);
   };
 
+  const reconcilePhoneVideoLesson = useCallback(
+    async (readyJob?: VideoJobInfo) => {
+    const refreshed = await refreshCourse();
+    const refreshedLesson = refreshed?.lessons.find(
+      lesson => lesson.id === selectedLessonId
+    );
+    if (!refreshedLesson) {
+      throw new Error("La leçon n’a pas pu être actualisée.");
+    }
+    if (
+      readyJob?.videoUrl &&
+      (refreshedLesson.videoUrl !== readyJob.videoUrl ||
+        refreshedLesson.videoType !== "file")
+    ) {
+      throw new Error("La vidéo prête n’est pas encore associée à la leçon.");
+    }
+    setLessonForm(asLessonInput(refreshedLesson));
+    },
+    [refreshCourse, selectedLessonId]
+  );
+
   const requestLessonChange = (next: Lesson | undefined) => {
     if (next?.id === selectedLessonId) return;
+    if (isPhoneVideoActive) {
+      setLessonFeedback({
+        type: "error",
+        message:
+          "Attends la fin ou annule le traitement vidéo avant de changer de leçon.",
+      });
+      return;
+    }
     if (
       lessonDirty &&
       !window.confirm(
@@ -424,18 +456,13 @@ function EditorContent() {
 
   const upload = async (
     file: File,
-    kind: "video" | "image" | "document",
+    kind: "image" | "document",
     target: UploadTarget
   ) => {
     setUploadState({ target, progress: 0, label: file.name });
     try {
       const contentType =
-        file.type ||
-        (kind === "video"
-          ? "video/mp4"
-          : kind === "image"
-            ? "image/jpeg"
-            : "application/pdf");
+        file.type || (kind === "image" ? "image/jpeg" : "application/pdf");
       const prepared = await prepareUpload.mutateAsync({
         filename: file.name,
         contentType,
@@ -572,48 +599,6 @@ function EditorContent() {
     }
   };
 
-  const onVideoUpload = async (event: ChangeEvent<HTMLInputElement>) => {
-    const [file] = Array.from(event.target.files ?? []);
-    event.target.value = "";
-    if (!file) return;
-    if (!isMp4(file)) {
-      setLessonFeedback({
-        type: "error",
-        message: "La vidéo doit être un fichier MP4.",
-      });
-      return;
-    }
-    if (file.size > MAX_VIDEO_BYTES) {
-      setLessonFeedback({
-        type: "error",
-        message: "La vidéo ne peut pas dépasser 250 Mio.",
-      });
-      return;
-    }
-
-    try {
-      const uploaded = await upload(file, "video", "video");
-      setLessonForm(current => ({
-        ...current,
-        videoType: "file",
-        videoUrl: uploaded.url,
-      }));
-      setLessonFeedback({
-        type: "success",
-        message:
-          "La vidéo est prête. Enregistre la leçon pour l’associer au cours.",
-      });
-    } catch (error) {
-      setLessonFeedback({
-        type: "error",
-        message: toFriendlyError(
-          error,
-          "Le téléversement de la vidéo a échoué."
-        ),
-      });
-    }
-  };
-
   const onDocumentUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
     event.target.value = "";
@@ -736,7 +721,7 @@ function EditorContent() {
       setLessonFeedback({
         type: "error",
         message:
-          "Téléverse un MP4 avant d’enregistrer une leçon avec fichier vidéo.",
+          "Téléverse une vidéo depuis ton téléphone avant d’enregistrer cette leçon.",
       });
       return;
     }
@@ -812,6 +797,14 @@ function EditorContent() {
 
   const archiveCurrentLesson = async () => {
     if (!course || !selectedLesson) return;
+    if (isPhoneVideoActive) {
+      setLessonFeedback({
+        type: "error",
+        message:
+          "Attends la fin ou annule le traitement vidéo avant d’archiver cette leçon.",
+      });
+      return;
+    }
     const confirmed = window.confirm(
       "Archiver cette leçon? Elle sera retirée du cours sans supprimer les fichiers liés."
     );
@@ -862,6 +855,7 @@ function EditorContent() {
   };
 
   const moveLesson = (lessonId: string, direction: -1 | 1) => {
+    if (isPhoneVideoActive) return;
     const from = lessonOrder.indexOf(lessonId);
     const to = from + direction;
     if (from < 0 || to < 0 || to >= lessonOrder.length) return;
@@ -877,7 +871,12 @@ function EditorContent() {
     event.preventDefault();
     const sourceId = draggedLessonId;
     setDraggedLessonId(null);
-    if (!sourceId || sourceId === destinationId || reorderLessons.isPending)
+    if (
+      !sourceId ||
+      sourceId === destinationId ||
+      reorderLessons.isPending ||
+      isPhoneVideoActive
+    )
       return;
     const from = lessonOrder.indexOf(sourceId);
     const to = lessonOrder.indexOf(destinationId);
@@ -1186,7 +1185,7 @@ function EditorContent() {
                     className="icon-button"
                     onClick={() => requestLessonChange(undefined)}
                     aria-label="Créer une nouvelle leçon"
-                    disabled={isLessonSaving}
+                    disabled={isLessonSaving || isPhoneVideoActive}
                   >
                     <Plus size={19} />
                   </button>
@@ -1194,7 +1193,9 @@ function EditorContent() {
               </header>
               <fieldset
                 className="admin-form-fieldset"
-                disabled={isLessonSaving || Boolean(uploadState)}
+                disabled={
+                  isLessonSaving || Boolean(uploadState) || isPhoneVideoActive
+                }
               >
                 <div className="admin-form-grid">
                   <label className="admin-field is-full">
@@ -1246,6 +1247,7 @@ function EditorContent() {
                           onChange={() =>
                             updateLessonField("videoType", "file")
                           }
+                          disabled={lessonForm.videoType !== "file"}
                         />{" "}
                         Fichier
                       </label>
@@ -1261,6 +1263,12 @@ function EditorContent() {
                         URL / intégration
                       </label>
                     </div>
+                    {lessonForm.videoType !== "file" && (
+                      <small>
+                        Pour importer une vidéo de téléphone, enregistre d’abord
+                        la leçon puis utilise l’importation ci-dessous.
+                      </small>
+                    )}
                   </div>
                   <label className="admin-field is-full">
                     <span>Description</span>
@@ -1303,34 +1311,6 @@ function EditorContent() {
                     Aucune vidéo externe n’est associée.
                   </p>
                 )}
-                {lessonForm.videoType === "file" && (
-                  <>
-                    <div className="admin-upload-box">
-                      <div className="admin-upload-box-copy">
-                        <strong>MP4, jusqu’à 250 Mio</strong>
-                        <span>
-                          Attends la confirmation avant d’enregistrer la leçon.
-                        </span>
-                      </div>
-                      <input
-                        type="file"
-                        accept="video/mp4,.mp4"
-                        onChange={event => {
-                          void onVideoUpload(event);
-                        }}
-                        disabled={Boolean(uploadState) || isLessonSaving}
-                      />
-                    </div>
-                    {lessonForm.videoUrl && (
-                      <p className="admin-save-state">
-                        Fichier prêt : {lessonForm.videoUrl}
-                      </p>
-                    )}
-                    {uploadState?.target === "video" && (
-                      <UploadProgress state={uploadState} />
-                    )}
-                  </>
-                )}
                 {lessonForm.videoType === "embed" && (
                   <label className="admin-field">
                     <span>URL vidéo</span>
@@ -1341,6 +1321,7 @@ function EditorContent() {
                         updateLessonField("videoUrl", event.target.value)
                       }
                       placeholder="https://player.vimeo.com/video/…"
+                      disabled={isPhoneVideoActive}
                     />
                     <small>
                       Accepte un MP4 HTTPS ou un lien YouTube, Vimeo ou Wistia
@@ -1350,6 +1331,27 @@ function EditorContent() {
                       le paramètre h, si présent.
                     </small>
                   </label>
+                )}
+                {selectedLesson ? (
+                  <PhoneVideoUpload
+                    lessonId={selectedLesson.id}
+                    revision={selectedLesson.revision ?? 0}
+                    videoJobId={selectedLesson.videoJobId}
+                    canStart={
+                      (selectedLesson.revision ?? 0) > 0 &&
+                      !lessonDirty &&
+                      !isLessonSaving &&
+                      !Boolean(uploadState)
+                    }
+                    onActiveChange={setIsPhoneVideoActive}
+                    onJobStarted={reconcilePhoneVideoLesson}
+                    onCompleted={reconcilePhoneVideoLesson}
+                  />
+                ) : (
+                  <p className="admin-save-state">
+                    Enregistre d’abord cette nouvelle leçon. Tu pourras ensuite
+                    importer une vidéo depuis ton téléphone.
+                  </p>
                 )}
               </div>
 
@@ -1373,7 +1375,11 @@ function EditorContent() {
                     onChange={event => {
                       void onDocumentUpload(event);
                     }}
-                    disabled={Boolean(uploadState) || isLessonSaving}
+                    disabled={
+                      Boolean(uploadState) ||
+                      isLessonSaving ||
+                      isPhoneVideoActive
+                    }
                   />
                 </div>
                 <label className="admin-field">
@@ -1385,7 +1391,11 @@ function EditorContent() {
                     value={documentTitle}
                     onChange={event => setDocumentTitle(event.target.value)}
                     placeholder="Ex. Guide de préparation"
-                    disabled={Boolean(uploadState) || isLessonSaving}
+                    disabled={
+                      Boolean(uploadState) ||
+                      isLessonSaving ||
+                      isPhoneVideoActive
+                    }
                   />
                 </label>
                 {uploadState?.target === "documents" && (
@@ -1397,7 +1407,11 @@ function EditorContent() {
                     value={resourceTitle}
                     onChange={event => setResourceTitle(event.target.value)}
                     placeholder="Titre du lien"
-                    disabled={isLessonSaving || Boolean(uploadState)}
+                    disabled={
+                      isLessonSaving ||
+                      Boolean(uploadState) ||
+                      isPhoneVideoActive
+                    }
                   />
                   <input
                     className="admin-resource-url"
@@ -1405,13 +1419,21 @@ function EditorContent() {
                     value={resourceUrl}
                     onChange={event => setResourceUrl(event.target.value)}
                     placeholder="https://…"
-                    disabled={isLessonSaving || Boolean(uploadState)}
+                    disabled={
+                      isLessonSaving ||
+                      Boolean(uploadState) ||
+                      isPhoneVideoActive
+                    }
                   />
                   <button
                     type="button"
                     className="btn secondary"
                     onClick={addResourceLink}
-                    disabled={isLessonSaving || Boolean(uploadState)}
+                    disabled={
+                      isLessonSaving ||
+                      Boolean(uploadState) ||
+                      isPhoneVideoActive
+                    }
                   >
                     <Plus size={15} /> Ajouter
                   </button>
@@ -1433,7 +1455,7 @@ function EditorContent() {
                           className="icon-button"
                           aria-label={`Retirer ${resource.title}`}
                           onClick={() => removeResource(resource.id)}
-                          disabled={isLessonSaving}
+                          disabled={isLessonSaving || isPhoneVideoActive}
                         >
                           <Trash2 size={16} />
                         </button>
@@ -1458,7 +1480,10 @@ function EditorContent() {
                   type="submit"
                   className="btn primary"
                   disabled={
-                    !lessonDirty || isLessonSaving || Boolean(uploadState)
+                    !lessonDirty ||
+                    isLessonSaving ||
+                    Boolean(uploadState) ||
+                    isPhoneVideoActive
                   }
                 >
                   {isLessonSaving ? (
@@ -1490,7 +1515,7 @@ function EditorContent() {
                     onClick={() => {
                       void archiveCurrentLesson();
                     }}
-                    disabled={isLessonSaving}
+                    disabled={isLessonSaving || isPhoneVideoActive}
                   >
                     <Archive size={15} /> Archiver
                   </button>
@@ -1513,7 +1538,11 @@ function EditorContent() {
               onClick={() => {
                 void archiveCurrentCourse();
               }}
-              disabled={archiveCourse.isPending || updateCourse.isPending}
+              disabled={
+                archiveCourse.isPending ||
+                updateCourse.isPending ||
+                isPhoneVideoActive
+              }
             >
               <Archive size={15} /> Archiver le cours
             </button>
@@ -1538,7 +1567,7 @@ function EditorContent() {
               type="button"
               className="btn secondary"
               onClick={() => requestLessonChange(undefined)}
-              disabled={isLessonSaving}
+              disabled={isLessonSaving || isPhoneVideoActive}
             >
               <Plus size={14} /> Ajouter
             </button>
@@ -1549,7 +1578,7 @@ function EditorContent() {
                 <li
                   key={lesson.id}
                   className={`admin-lesson-list-item ${selectedLessonId === lesson.id ? "is-selected" : ""} ${draggedLessonId === lesson.id ? "is-dragging" : ""}`}
-                  draggable={!reorderLessons.isPending}
+                  draggable={!reorderLessons.isPending && !isPhoneVideoActive}
                   onDragStart={() => setDraggedLessonId(lesson.id)}
                   onDragEnd={() => setDraggedLessonId(null)}
                   onDragOver={event => event.preventDefault()}
@@ -1565,6 +1594,7 @@ function EditorContent() {
                     className="admin-lesson-select"
                     onClick={() => requestLessonChange(lesson)}
                     aria-pressed={selectedLessonId === lesson.id}
+                    disabled={isPhoneVideoActive}
                   >
                     <strong>
                       {index + 1}. {lesson.title || "Leçon sans titre"}
@@ -1578,7 +1608,11 @@ function EditorContent() {
                     <button
                       type="button"
                       onClick={() => moveLesson(lesson.id, -1)}
-                      disabled={index === 0 || reorderLessons.isPending}
+                      disabled={
+                        index === 0 ||
+                        reorderLessons.isPending ||
+                        isPhoneVideoActive
+                      }
                       aria-label={`Monter ${lesson.title}`}
                     >
                       <ArrowUp size={13} />
@@ -1588,7 +1622,8 @@ function EditorContent() {
                       onClick={() => moveLesson(lesson.id, 1)}
                       disabled={
                         index === orderedLessons.length - 1 ||
-                        reorderLessons.isPending
+                        reorderLessons.isPending ||
+                        isPhoneVideoActive
                       }
                       aria-label={`Descendre ${lesson.title}`}
                     >

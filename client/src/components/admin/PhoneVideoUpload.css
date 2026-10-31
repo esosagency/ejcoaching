@@ -1,0 +1,224 @@
+/* Import vidéo téléphone — variante premium de l’éditeur EJ Coaching. */
+.phone-video-upload {
+  display: grid;
+  gap: 13px;
+  border: 1px solid rgba(141, 112, 226, 0.38);
+  border-radius: 13px;
+  background:
+    linear-gradient(130deg, rgba(105, 73, 187, 0.13), transparent 52%), #10131f;
+  padding: 16px;
+}
+.phone-video-upload-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.phone-video-upload-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 13px;
+}
+.phone-video-upload-heading h4 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  color: #f1eff9;
+  font-size: 13px;
+  letter-spacing: -0.015em;
+}
+.phone-video-upload-heading h4 svg {
+  color: #c1acff;
+}
+.phone-video-upload-heading p,
+.phone-video-help,
+.phone-video-requirement,
+.phone-video-recovery p,
+.phone-video-polling-note {
+  margin: 5px 0 0;
+  color: #a1a5b9;
+  font-size: 10px;
+  line-height: 1.55;
+}
+.phone-video-status {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  min-height: 25px;
+  border: 1px solid #403b55;
+  border-radius: 999px;
+  background: #1a1927;
+  color: #c9bcf4;
+  padding: 4px 8px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.045em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+.phone-video-status.is-ready {
+  border-color: rgba(103, 198, 148, 0.43);
+  background: rgba(55, 138, 94, 0.15);
+  color: #aae3c0;
+}
+.phone-video-status.is-failed,
+.phone-video-status.is-cancelled {
+  border-color: rgba(237, 139, 155, 0.42);
+  background: rgba(165, 60, 77, 0.13);
+  color: #f0acb7;
+}
+.phone-video-status.is-processing,
+.phone-video-status.is-queued,
+.phone-video-status.is-uploading {
+  border-color: rgba(165, 137, 250, 0.46);
+  background: rgba(113, 79, 203, 0.16);
+  color: #d6c9ff;
+}
+.phone-video-spin {
+  animation: phone-video-spin 0.8s linear infinite;
+}
+@keyframes phone-video-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.phone-video-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.phone-video-actions .btn,
+.phone-video-cancel {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 10px 13px;
+  font-size: 11px;
+}
+.phone-video-progress {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 9px 12px;
+  border: 1px solid rgba(143, 112, 230, 0.34);
+  border-radius: 10px;
+  background: rgba(84, 58, 152, 0.13);
+  padding: 12px;
+}
+.phone-video-progress-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.phone-video-progress-copy strong {
+  color: #ded7fa;
+  font-size: 11px;
+}
+.phone-video-progress-copy span {
+  color: #aaa6bd;
+  font-size: 10px;
+  line-height: 1.45;
+}
+.phone-video-progress-value {
+  align-self: center;
+  color: #d5c7ff;
+  font-size: 11px;
+  font-weight: 800;
+}
+.phone-video-progress-track {
+  grid-column: 1 / -1;
+  display: block;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #2a2c3d;
+}
+.phone-video-progress-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #8764e8, #c4b0ff);
+  transition: width 0.25s ease;
+}
+.phone-video-progress .phone-video-cancel {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+.phone-video-recovery {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(232, 139, 153, 0.32);
+  border-radius: 10px;
+  background: rgba(151, 53, 70, 0.1);
+  padding: 12px;
+}
+.phone-video-recovery p {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 0;
+  color: #e5b4bd;
+}
+.phone-video-recovery p svg,
+.phone-video-message svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+.phone-video-message,
+.phone-video-requirement,
+.phone-video-polling-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 0;
+  border-radius: 9px;
+  padding: 10px 11px;
+}
+.phone-video-message {
+  border: 1px solid rgba(236, 141, 156, 0.37);
+  background: rgba(163, 55, 73, 0.12);
+  color: #efb0ba;
+}
+.phone-video-requirement {
+  border: 1px solid rgba(161, 138, 229, 0.25);
+  background: rgba(113, 81, 189, 0.1);
+  color: #cec0f3;
+}
+.phone-video-polling-note {
+  border: 1px solid rgba(197, 167, 109, 0.28);
+  background: rgba(134, 104, 45, 0.1);
+  color: #dac696;
+}
+.phone-video-help {
+  border-top: 1px solid rgba(58, 61, 80, 0.9);
+  padding-top: 11px;
+}
+@media (max-width: 560px) {
+  .phone-video-upload {
+    padding: 14px;
+  }
+  .phone-video-upload-heading {
+    flex-direction: column;
+  }
+  .phone-video-status {
+    align-self: flex-start;
+  }
+  .phone-video-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+  .phone-video-actions .btn,
+  .phone-video-progress .phone-video-cancel {
+    width: 100%;
+  }
+  .phone-video-progress .phone-video-cancel {
+    justify-self: stretch;
+  }
+}

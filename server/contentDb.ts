@@ -5,11 +5,13 @@ import {
   contentLessons,
   contentSetup,
   contentUploads,
+  contentVideoJobs,
   type ContentCourseRow,
   type ContentLessonRow,
   type ContentUploadRow,
 } from "../drizzle/schema";
 import type { Course, Lesson, LessonResource } from "../shared/content";
+import { isPhoneVideoStatusActive } from "../shared/phoneVideo";
 import { getDb } from "./db";
 import type {
   ValidCourseInput,
@@ -19,6 +21,7 @@ import type {
 import {
   assertExactLessonPermutation,
   getUploadRule,
+  isManagedStorageUrl,
 } from "./contentValidation";
 
 export class ContentNotFoundError extends Error {
@@ -107,7 +110,15 @@ function normalizeResources(value: unknown): LessonResource[] {
   });
 }
 
-function toLesson(row: ContentLessonRow): Lesson {
+type LessonSerializationOptions = {
+  includeVideoJobId: boolean;
+  videoPending: boolean;
+};
+
+function toLesson(
+  row: ContentLessonRow,
+  options: LessonSerializationOptions
+): Lesson {
   return {
     id: row.id,
     title: row.title,
@@ -116,13 +127,22 @@ function toLesson(row: ContentLessonRow): Lesson {
     takeaways: normalizeTakeaways(row.takeaways),
     ...(row.videoUrl ? { videoUrl: row.videoUrl } : {}),
     videoType: row.videoType,
+    ...(options.includeVideoJobId && row.videoJobId
+      ? { videoJobId: row.videoJobId }
+      : {}),
+    ...(row.videoPosterUrl ? { videoPosterUrl: row.videoPosterUrl } : {}),
+    ...(options.videoPending ? { videoPending: true } : {}),
     resources: normalizeResources(row.resources),
     position: row.position,
     revision: row.revision,
   };
 }
 
-function toCourse(row: ContentCourseRow, lessons: ContentLessonRow[]): Course {
+function toCourse(
+  row: ContentCourseRow,
+  lessons: ContentLessonRow[],
+  options: { includeVideoJobId: boolean; pendingJobIds: Set<string> }
+): Course {
   return {
     id: row.id,
     title: row.title,
@@ -132,7 +152,14 @@ function toCourse(row: ContentCourseRow, lessons: ContentLessonRow[]): Course {
     color: row.color,
     ...(row.image ? { image: row.image } : {}),
     icon: row.icon,
-    lessons: lessons.map(toLesson),
+    lessons: lessons.map(lesson =>
+      toLesson(lesson, {
+        includeVideoJobId: options.includeVideoJobId,
+        videoPending:
+          Boolean(lesson.videoJobId) &&
+          options.pendingJobIds.has(lesson.videoJobId!),
+      })
+    ),
     status: row.status,
     isSample: row.isSample,
     position: row.position,
@@ -180,8 +207,25 @@ async function getCoursesWithLessons(options: {
     lessonsByCourse.set(lesson.courseId, current);
   }
 
+  const videoJobIds = lessons
+    .map(lesson => lesson.videoJobId)
+    .filter((id): id is string => Boolean(id));
+  const jobs =
+    videoJobIds.length === 0
+      ? []
+      : await db
+          .select({ id: contentVideoJobs.id, status: contentVideoJobs.status })
+          .from(contentVideoJobs)
+          .where(inArray(contentVideoJobs.id, videoJobIds));
+  const pendingJobIds = new Set(
+    jobs.filter(job => isPhoneVideoStatusActive(job.status)).map(job => job.id)
+  );
+
   return courses.map(course =>
-    toCourse(course, lessonsByCourse.get(course.id) ?? [])
+    toCourse(course, lessonsByCourse.get(course.id) ?? [], {
+      includeVideoJobId: !options.publishedOnly,
+      pendingJobIds,
+    })
   );
 }
 
@@ -234,7 +278,24 @@ export async function getAdminCourse(id: string): Promise<Course> {
     )
     .orderBy(asc(contentLessons.position), asc(contentLessons.id));
 
-  return toCourse(course, lessons);
+  const videoJobIds = lessons
+    .map(lesson => lesson.videoJobId)
+    .filter((jobId): jobId is string => Boolean(jobId));
+  const jobs =
+    videoJobIds.length === 0
+      ? []
+      : await db
+          .select({ id: contentVideoJobs.id, status: contentVideoJobs.status })
+          .from(contentVideoJobs)
+          .where(inArray(contentVideoJobs.id, videoJobIds));
+  return toCourse(course, lessons, {
+    includeVideoJobId: true,
+    pendingJobIds: new Set(
+      jobs
+        .filter(job => isPhoneVideoStatusActive(job.status))
+        .map(job => job.id)
+    ),
+  });
 }
 
 function nextPosition(value: unknown): number {
@@ -249,6 +310,42 @@ function affectedRows(result: unknown): number {
     return 0;
   const value = (result[0] as { affectedRows?: unknown }).affectedRows;
   return typeof value === "number" ? value : 0;
+}
+
+async function assertManagedLessonVideoIsPlayable(
+  db: ContentQueryExecutor,
+  data: ValidLessonInput
+): Promise<void> {
+  if (
+    data.videoType !== "file" ||
+    !data.videoUrl ||
+    !isManagedStorageUrl(data.videoUrl)
+  ) {
+    return;
+  }
+
+  const objectKey = data.videoUrl.slice("/manus-storage/".length);
+  const [output] = await db
+    .select({ id: contentUploads.id })
+    .from(contentUploads)
+    .innerJoin(
+      contentVideoJobs,
+      eq(contentVideoJobs.outputVideoUploadId, contentUploads.id)
+    )
+    .where(
+      and(
+        eq(contentUploads.objectKey, objectKey),
+        eq(contentUploads.kind, "video"),
+        eq(contentUploads.status, "ready"),
+        eq(contentVideoJobs.status, "ready")
+      )
+    )
+    .limit(1);
+  if (!output) {
+    throw new ContentValidationError(
+      "Cette vidéo interne n’est pas une vidéo convertie prête à la lecture."
+    );
+  }
 }
 
 async function assertActiveCourse(
@@ -376,7 +473,33 @@ export async function archiveCourse(
         )
       );
 
-    if (affectedRows(result) === 0) await assertCourseRevisionState(tx, id);
+    if (affectedRows(result) === 0) {
+      await assertCourseRevisionState(tx, id);
+      return;
+    }
+    await tx.update(contentVideoJobs).set({
+      status: "cancelled",
+      leaseToken: null,
+      leaseExpiresAt: null,
+      lastHeartbeatAt: null,
+      finishedAt: now,
+      updatedAt: now,
+    }).where(and(
+      inArray(contentVideoJobs.status, ["uploading", "queued", "processing", "failed"]),
+      sql`exists (
+        select 1 from ${contentLessons}
+        where ${contentLessons.id} = ${contentVideoJobs.lessonId}
+          and ${contentLessons.courseId} = ${id}
+      )`
+    ));
+    await tx.update(contentLessons).set({
+      videoJobId: null,
+      revision: sql`${contentLessons.revision} + 1`,
+      updatedAt: now,
+    }).where(and(
+      eq(contentLessons.courseId, id),
+      sql`${contentLessons.videoJobId} is not null`
+    ));
   });
 }
 
@@ -387,6 +510,7 @@ export async function createLesson(
   const db = await requireDb();
   return db.transaction(async tx => {
     await assertActiveCourse(tx, courseId);
+    await assertManagedLessonVideoIsPlayable(tx, data);
     const [positionRow] = await tx
       .select({ maxPosition: max(contentLessons.position) })
       .from(contentLessons)
@@ -425,6 +549,35 @@ export async function updateLesson(
 ): Promise<void> {
   const db = await requireDb();
   await db.transaction(async tx => {
+    const [existing] = await tx
+      .select({
+        videoUrl: contentLessons.videoUrl,
+        videoType: contentLessons.videoType,
+        videoJobId: contentLessons.videoJobId,
+        videoPosterUrl: contentLessons.videoPosterUrl,
+      })
+      .from(contentLessons)
+      .where(
+        and(
+          eq(contentLessons.courseId, courseId),
+          eq(contentLessons.id, id),
+          eq(contentLessons.revision, revision),
+          isNull(contentLessons.archivedAt)
+        )
+      )
+      .limit(1);
+    if (!existing) {
+      await assertLessonRevisionState(tx, courseId, id);
+      return;
+    }
+
+    await assertManagedLessonVideoIsPlayable(tx, data);
+    const requestedVideoUrl = data.videoUrl ?? null;
+    const mediaChanged =
+      existing.videoType !== data.videoType ||
+      existing.videoUrl !== requestedVideoUrl;
+    const detachedJobId = mediaChanged ? existing.videoJobId : null;
+    const now = new Date();
     const result = await tx
       .update(contentLessons)
       .set({
@@ -432,11 +585,14 @@ export async function updateLesson(
         duration: data.duration,
         description: data.description,
         takeaways: data.takeaways,
-        videoUrl: data.videoUrl ?? null,
+        videoUrl: requestedVideoUrl,
         videoType: data.videoType,
+        // An explicit media replacement must fence the prior asynchronous job.
+        videoJobId: detachedJobId ? null : existing.videoJobId,
+        videoPosterUrl: mediaChanged ? null : existing.videoPosterUrl,
         resources: data.resources,
         revision: sql`${contentLessons.revision} + 1`,
-        updatedAt: new Date(),
+        updatedAt: now,
       })
       .where(
         and(
@@ -447,8 +603,33 @@ export async function updateLesson(
         )
       );
 
-    if (affectedRows(result) === 0)
+    if (affectedRows(result) === 0) {
       await assertLessonRevisionState(tx, courseId, id);
+      return;
+    }
+
+    if (detachedJobId) {
+      await tx
+        .update(contentVideoJobs)
+        .set({
+          status: "cancelled",
+          leaseToken: null,
+          leaseExpiresAt: null,
+          lastHeartbeatAt: null,
+          finishedAt: now,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(contentVideoJobs.id, detachedJobId),
+            inArray(contentVideoJobs.status, [
+              "uploading",
+              "queued",
+              "processing",
+            ])
+          )
+        );
+    }
   });
 }
 
@@ -464,6 +645,7 @@ export async function archiveLesson(
       .update(contentLessons)
       .set({
         archivedAt: now,
+        videoJobId: null,
         revision: sql`${contentLessons.revision} + 1`,
         updatedAt: now,
       })
@@ -476,8 +658,21 @@ export async function archiveLesson(
         )
       );
 
-    if (affectedRows(result) === 0)
+    if (affectedRows(result) === 0) {
       await assertLessonRevisionState(tx, courseId, id);
+      return;
+    }
+    await tx.update(contentVideoJobs).set({
+      status: "cancelled",
+      leaseToken: null,
+      leaseExpiresAt: null,
+      lastHeartbeatAt: null,
+      finishedAt: now,
+      updatedAt: now,
+    }).where(and(
+      eq(contentVideoJobs.lessonId, id),
+      inArray(contentVideoJobs.status, ["uploading", "queued", "processing", "failed"])
+    ));
   });
 }
 
@@ -543,6 +738,11 @@ export async function createPendingUpload(
   ownerUserId: number,
   input: ValidUploadInput
 ): Promise<UploadRecord> {
+  if (input.kind === "video") {
+    throw new ContentValidationError(
+      "Les vidéos doivent passer par le traitement vidéo sécurisé."
+    );
+  }
   const db = await requireDb();
   const id = nanoid(21);
   const objectKey = randomObjectKey(input.contentType);
@@ -598,7 +798,8 @@ export async function markUploadReady(
       and(
         eq(contentUploads.id, id),
         eq(contentUploads.ownerUserId, ownerUserId),
-        eq(contentUploads.status, "pending")
+        eq(contentUploads.status, "pending"),
+        inArray(contentUploads.kind, ["image", "document"])
       )
     );
   return affectedRows(result) === 1;

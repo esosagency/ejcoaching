@@ -5,6 +5,7 @@ import {
   ChevronRight,
   FileText,
   ListVideo,
+  LoaderCircle,
   LockKeyhole,
   Pause,
   Play,
@@ -115,6 +116,7 @@ export default function Lesson() {
   const lesson = course?.lessons.find(item => item.id === lessonId);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [controlsVisible, setControlsVisible] = useState(false);
+  const [videoError, setVideoError] = useState(false);
   const [activeTab, setActiveTab] = useState<LessonTab>("overview");
   const notesKey = `ej-demo-notes-${lessonId || "unknown"}`;
   const [notes, setNotes] = useState(() => readNotes(notesKey));
@@ -128,6 +130,11 @@ export default function Lesson() {
     setControlsVisible(false);
     setActiveTab("overview");
   }, [notesKey]);
+
+  useEffect(() => {
+    setControlsVisible(false);
+    setVideoError(false);
+  }, [lesson?.videoUrl]);
 
   useEffect(() => {
     const currentVideo = videoRef.current;
@@ -181,7 +188,10 @@ export default function Lesson() {
   const isSaved = saved.includes(lesson.id);
   const progress = course.lessons.length ? courseProgress(course) : 0;
   const videoType = lesson.videoType || "demo";
-  const isDemoVideo = videoType === "demo";
+  const pendingWithoutVideo = Boolean(
+    lesson.videoPending && (!lesson.videoUrl || videoType === "demo")
+  );
+  const isDemoVideo = videoType === "demo" && !pendingWithoutVideo;
   const fileVideoUrl =
     videoType === "file" ? lesson.videoUrl?.trim() : undefined;
   const embedVideoUrl =
@@ -195,7 +205,7 @@ export default function Lesson() {
       ? `/admin/preview/${course.id}/lesson/${targetId}`
       : `/learn/${course.id}/${targetId}`;
   const moveTo = (targetId: string) => navigate(lessonLink(targetId));
-  const startDemo = () => {
+  const startVideo = () => {
     setControlsVisible(true);
     void videoRef.current?.play().catch(() => undefined);
   };
@@ -250,7 +260,13 @@ export default function Lesson() {
       <section className="lp-player-layout">
         <div className="lp-video-column">
           <div className="lp-video-shell panel">
-            {isDemoVideo ? (
+            {pendingWithoutVideo ? (
+              <div className="lp-resource-tab lp-video-state" role="status">
+                <LoaderCircle size={24} />
+                <h3>La vidéo est en cours de préparation</h3>
+                <p>Elle sera disponible ici après sa conversion.</p>
+              </div>
+            ) : isDemoVideo ? (
               <>
                 <video
                   key={`${lesson.id}:demo:${lesson.videoUrl || "default"}`}
@@ -259,6 +275,7 @@ export default function Lesson() {
                   controls={controlsVisible}
                   poster={course.image}
                   preload="metadata"
+                  playsInline
                   onPlay={() => setControlsVisible(true)}
                 >
                   <source
@@ -271,7 +288,7 @@ export default function Lesson() {
                   <button
                     className="lp-play-overlay"
                     type="button"
-                    onClick={startDemo}
+                    onClick={startVideo}
                     aria-label="Lire la vidéo d’exemple"
                   >
                     <span>
@@ -286,17 +303,49 @@ export default function Lesson() {
                 </div>
               </>
             ) : fileVideoUrl ? (
-              <video
-                key={`${lesson.id}:file:${fileVideoUrl}`}
-                ref={videoRef}
-                className="lp-demo-video"
-                controls
-                poster={course.image}
-                preload="metadata"
-              >
-                <source src={fileVideoUrl} />
-                Ton navigateur ne prend pas en charge la lecture vidéo.
-              </video>
+              <>
+                <video
+                  key={`${lesson.id}:file:${fileVideoUrl}`}
+                  ref={videoRef}
+                  className="lp-demo-video"
+                  controls={controlsVisible}
+                  poster={lesson.videoPosterUrl || course.image}
+                  preload="metadata"
+                  playsInline
+                  onPlay={() => setControlsVisible(true)}
+                  onError={() => setVideoError(true)}
+                >
+                  <source src={fileVideoUrl} />
+                  Ton navigateur ne prend pas en charge la lecture vidéo.
+                </video>
+                {!controlsVisible && !videoError && (
+                  <button
+                    className="lp-play-overlay"
+                    type="button"
+                    onClick={startVideo}
+                    aria-label={`Lire la leçon : ${lesson.title}`}
+                  >
+                    <span><Play size={24} fill="currentColor" /></span>
+                    <strong>Lire la leçon</strong>
+                  </button>
+                )}
+                {videoError && (
+                  <div className="lp-resource-tab lp-video-state" role="alert">
+                    <p>La vidéo n’a pas pu être chargée. Vérifie ta connexion et réessaie.</p>
+                    <button
+                      className="btn secondary"
+                      type="button"
+                      onClick={() => {
+                        setVideoError(false);
+                        setControlsVisible(false);
+                        videoRef.current?.load();
+                      }}
+                    >
+                      Réessayer la lecture
+                    </button>
+                  </div>
+                )}
+              </>
             ) : embedVideoUrl ? (
               <iframe
                 key={`${lesson.id}:embed:${embedVideoUrl}`}
