@@ -22,7 +22,9 @@ type LearningState = {
   courseProgress: (course: Course) => number;
   resetProgress: () => void;
 };
+
 const LearningContext = createContext<LearningState | null>(null);
+
 function readList(key: string, legacy: string, owner: boolean): string[] {
   try {
     const value: unknown = JSON.parse(
@@ -42,14 +44,17 @@ function readList(key: string, legacy: string, owner: boolean): string[] {
     return [];
   }
 }
+
 export function LearningProvider({ children }: { children: ReactNode }) {
   const { courses, isAdminPreview } = useCatalog();
   const { access } = useAccess();
   const owner = Boolean(access?.isAdmin);
-  const userId = access?.user?.id;
-  const completedKey = accountStorageKey(userId, "completed");
-  const savedKey = accountStorageKey(userId, "saved");
-  const lastKey = accountStorageKey(userId, "last");
+  // OAuth administrators keep String(id), so their old ej-account-<id>-* keys
+  // remain intact. Code clients receive stable client_<id> keys from the server.
+  const accountKey = access?.user?.accountKey;
+  const completedKey = accountStorageKey(accountKey, "completed");
+  const savedKey = accountStorageKey(accountKey, "saved");
+  const lastKey = accountStorageKey(accountKey, "last");
   const validIds = useMemo(
     () =>
       new Set(
@@ -66,6 +71,7 @@ export function LearningProvider({ children }: { children: ReactNode }) {
   const [storedLast, setLastLesson] = useState(
     () => readAccountStorage(lastKey, "ej-demo-last", owner) || ""
   );
+
   useEffect(() => {
     if (isAdminPreview) return;
     try {
@@ -84,6 +90,7 @@ export function LearningProvider({ children }: { children: ReactNode }) {
       localStorage.setItem(lastKey, storedLast);
     } catch {}
   }, [lastKey, storedLast, isAdminPreview]);
+
   const completed = useMemo(
     () => storedCompleted.filter(id => validIds.has(id)),
     [storedCompleted, validIds]
@@ -140,6 +147,7 @@ export function LearningProvider({ children }: { children: ReactNode }) {
     setSaved([]);
     setLastLesson("");
   };
+
   return (
     <LearningContext.Provider
       value={{
@@ -157,6 +165,7 @@ export function LearningProvider({ children }: { children: ReactNode }) {
     </LearningContext.Provider>
   );
 }
+
 export function useLearning() {
   const context = useContext(LearningContext);
   if (!context)

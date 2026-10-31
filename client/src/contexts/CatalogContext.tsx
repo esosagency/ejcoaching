@@ -23,7 +23,7 @@ export function CatalogProvider({
 }) {
   const { access, loading: accessLoading } = useAccess();
   const query = trpc.content.catalog.useQuery(
-    access?.user ? { accountId: access.user.id } : undefined,
+    access?.user ? { accountKey: access.user.accountKey } : undefined,
     {
       enabled:
         override === undefined && Boolean(access?.allowed) && !accessLoading,

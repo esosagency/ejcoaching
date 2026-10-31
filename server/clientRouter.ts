@@ -12,6 +12,19 @@ import {
   setClientStatus,
   updateClient,
 } from "./clientAccess";
+import {
+  ClientCodeConflictError,
+  ClientCodeDatabaseUnavailableError,
+  ClientCodeNotFoundError,
+  ClientCodeValidationError,
+  clearClientSessionCookie,
+  disableClientCode,
+  getClientAttemptFingerprint,
+  issueClientCode,
+  loginWithClientCode,
+  logoutClientRequest,
+  setClientSessionCookie,
+} from "./clientCodes";
 import { adminProcedure, publicProcedure, router } from "./_core/trpc";
 
 const clientIdSchema = z
@@ -28,14 +41,20 @@ const revisionSchema = z
 const nameSchema = z
   .string()
   .trim()
+  .min(1, "Le nom du client est requis.")
   .max(180, "Le nom du client doit contenir au plus 180 caractères.");
 
-const emailSchema = z
+const optionalContactEmailSchema = z
   .string()
   .trim()
   .toLowerCase()
   .max(320, "L’adresse courriel est trop longue.")
-  .refine(isValidClientEmail, "L’adresse courriel est invalide.");
+  .refine(
+    value => value.length === 0 || isValidClientEmail(value),
+    "L’adresse courriel est invalide."
+  )
+  .transform(value => value || null)
+  .nullable();
 
 const courseIdSchema = z
   .string()
@@ -61,7 +80,11 @@ const courseIdsSchema = z
   });
 
 const approveInputSchema = z
-  .object({ email: emailSchema, name: nameSchema, courseIds: courseIdsSchema })
+  .object({
+    email: optionalContactEmailSchema.optional().default(null),
+    name: nameSchema,
+    courseIds: courseIdsSchema,
+  })
   .strict();
 
 const updateInputSchema = z
@@ -70,6 +93,7 @@ const updateInputSchema = z
     revision: revisionSchema,
     name: nameSchema,
     courseIds: courseIdsSchema,
+    email: optionalContactEmailSchema.optional(),
   })
   .strict();
 
@@ -81,18 +105,38 @@ const setStatusInputSchema = z
   })
   .strict();
 
+const codeManagementInputSchema = z
+  .object({ id: clientIdSchema, revision: revisionSchema })
+  .strict();
+
+// The code is intentionally not format-validated by Zod: every malformed or
+// excessive value reaches the generic login outcome without revealing state.
+const loginInputSchema = z.object({ code: z.string() }).strict();
+
 function toTrpcError(error: unknown): never {
   if (error instanceof TRPCError) throw error;
-  if (error instanceof ClientAccessNotFoundError) {
+  if (
+    error instanceof ClientAccessNotFoundError ||
+    error instanceof ClientCodeNotFoundError
+  ) {
     throw new TRPCError({ code: "NOT_FOUND", message: error.message });
   }
-  if (error instanceof ClientAccessConflictError) {
+  if (
+    error instanceof ClientAccessConflictError ||
+    error instanceof ClientCodeConflictError
+  ) {
     throw new TRPCError({ code: "CONFLICT", message: error.message });
   }
-  if (error instanceof ClientAccessValidationError) {
+  if (
+    error instanceof ClientAccessValidationError ||
+    error instanceof ClientCodeValidationError
+  ) {
     throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
   }
-  if (error instanceof ClientAccessDatabaseUnavailableError) {
+  if (
+    error instanceof ClientAccessDatabaseUnavailableError ||
+    error instanceof ClientCodeDatabaseUnavailableError
+  ) {
     throw new TRPCError({
       code: "INTERNAL_SERVER_ERROR",
       message: error.message,
@@ -112,14 +156,10 @@ async function executeClientAccess<T>(operation: () => Promise<T>): Promise<T> {
   }
 }
 
-/**
- * Parent route composition registers this router as `clients`. It deliberately
- * contains no OAuth changes, outbound email, progress, payment, or media-key
- * endpoints.
- */
+/** Client-management and personal-code routes, composed under `clients`. */
 export const clientRouter = router({
   me: publicProcedure.query(({ ctx }) =>
-    executeClientAccess(() => getAccessForUser(ctx.user))
+    executeClientAccess(() => getAccessForUser(ctx.user, ctx.client))
   ),
 
   adminList: adminProcedure.query(() =>
@@ -145,4 +185,41 @@ export const clientRouter = router({
       await executeClientAccess(() => setClientStatus(input));
       return { id: input.id };
     }),
+
+  issueCode: adminProcedure
+    .input(codeManagementInputSchema)
+    .mutation(({ input }) => executeClientAccess(() => issueClientCode(input))),
+
+  disableCode: adminProcedure
+    .input(codeManagementInputSchema)
+    .mutation(({ input }) =>
+      executeClientAccess(() => disableClientCode(input))
+    ),
+
+  login: publicProcedure
+    .input(loginInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const token = await executeClientAccess(() =>
+        loginWithClientCode(input.code, getClientAttemptFingerprint(ctx.req))
+      );
+      if (!token) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message:
+            "Code invalide ou accès indisponible. Vérifie ton code ou réessaie dans quelques minutes.",
+        });
+      }
+      setClientSessionCookie(ctx.req, ctx.res, token);
+      return { success: true } as const;
+    }),
+
+  logout: publicProcedure.mutation(async ({ ctx }) => {
+    try {
+      await logoutClientRequest(ctx.req);
+    } catch {
+      // Always remove the browser's client-mode cookie; no session detail is exposed.
+    }
+    clearClientSessionCookie(ctx.req, ctx.res);
+    return { success: true } as const;
+  }),
 });

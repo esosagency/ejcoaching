@@ -1,6 +1,11 @@
-export function accountStorageKey(userId: number | undefined, suffix: string) {
-  return `ej-account-${userId && userId > 0 ? userId : "guest"}-${suffix}`;
+export function accountStorageKey(
+  accountKey: string | undefined,
+  suffix: string
+) {
+  const normalized = accountKey?.trim();
+  return `ej-account-${normalized || "guest"}-${suffix}`;
 }
+
 export function readAccountStorage(
   key: string,
   legacyKey?: string,

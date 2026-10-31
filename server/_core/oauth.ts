@@ -61,8 +61,8 @@ export function registerOAuthRoutes(app: Express) {
       });
 
       const signedInUser = await db.getUserByOpenId(userInfo.openId);
-      const access = await getAccessForUser(signedInUser ?? null);
-      if (!access.allowed) {
+      const access = await getAccessForUser(signedInUser ?? null, null);
+      if (!access.allowed || !access.isAdmin) {
         res.clearCookie(COOKIE_NAME, {
           ...getSessionCookieOptions(req),
           maxAge: -1,

@@ -9,10 +9,6 @@ type UseAuthOptions = {
 };
 
 export function useAuth(options?: UseAuthOptions) {
-  // Login is started via startLogin() in the effect below, only when we actually
-  // navigate — never during render. startLogin() mints a one-time nonce + writes
-  // the state cookie, so calling it per render would overwrite the cookie and
-  // desync it from an in-flight login's `state`.
   const { redirectOnUnauthenticated = false, redirectPath } = options ?? {};
   const utils = trpc.useUtils();
 
@@ -21,16 +17,36 @@ export function useAuth(options?: UseAuthOptions) {
     refetchOnMount: false,
     refetchOnWindowFocus: true,
   });
-
-  const logoutMutation = trpc.auth.logout.useMutation({
+  const oauthLogoutMutation = trpc.auth.logout.useMutation({
     onSuccess: () => {
       utils.auth.me.setData(undefined, null);
     },
   });
+  const clientLogoutMutation = trpc.clients.logout.useMutation();
+  const user = meQuery.data;
+  const isClientSession =
+    user?.role === "user" && user.accountKey.startsWith("client_");
+
+  const clearProtectedCaches = useCallback(async () => {
+    utils.auth.me.setData(undefined, null);
+    await Promise.all([
+      utils.clients.me.reset(),
+      utils.clients.adminList.reset(),
+      utils.content.catalog.reset(),
+      utils.content.adminList.reset(),
+      utils.content.adminGet.reset(),
+      utils.video.get.reset(),
+    ]);
+    await utils.auth.me.invalidate();
+  }, [utils]);
 
   const logout = useCallback(async () => {
     try {
-      await logoutMutation.mutateAsync();
+      if (isClientSession) {
+        await clientLogoutMutation.mutateAsync(undefined);
+      } else {
+        await oauthLogoutMutation.mutateAsync();
+      }
     } catch (error: unknown) {
       if (
         error instanceof TRPCClientError &&
@@ -40,67 +56,84 @@ export function useAuth(options?: UseAuthOptions) {
       }
       throw error;
     } finally {
-      // Clear the Preview auto-login token mirrored into sessionStorage, so
-      // header-based sessions (Safari ITP / WebView) are logged out too. The
-      // backend cookie is cleared by the logout mutation.
-      try {
-        sessionStorage.removeItem("manus-cookie");
-        localStorage.removeItem("manus-runtime-user-info");
-      } catch {}
-      utils.auth.me.setData(undefined, null);
-      await Promise.all([
-        utils.clients.me.reset(),
-        utils.clients.adminList.reset(),
-        utils.content.catalog.reset(),
-        utils.content.adminList.reset(),
-        utils.content.adminGet.reset(),
-        utils.video.get.reset(),
-      ]);
-      await utils.auth.me.invalidate();
+      // OAuth preview credentials belong to the administrator session only. A
+      // code client signs out through clients.logout and never stores a code.
+      if (!isClientSession) {
+        try {
+          sessionStorage.removeItem("manus-cookie");
+          localStorage.removeItem("manus-runtime-user-info");
+        } catch {}
+      }
+      await clearProtectedCaches();
     }
-  }, [logoutMutation, utils]);
-
-  const state = useMemo(() => {
-    try {
-      localStorage.setItem(
-        "manus-runtime-user-info",
-        JSON.stringify(meQuery.data)
-      );
-    } catch {
-      // Storage is optional; the validated server session remains authoritative.
-    }
-    return {
-      user: meQuery.data ?? null,
-      loading: meQuery.isLoading || logoutMutation.isPending,
-      error: meQuery.error ?? logoutMutation.error ?? null,
-      isAuthenticated: Boolean(meQuery.data),
-    };
   }, [
-    meQuery.data,
-    meQuery.error,
-    meQuery.isLoading,
-    logoutMutation.error,
-    logoutMutation.isPending,
+    clearProtectedCaches,
+    clientLogoutMutation,
+    isClientSession,
+    oauthLogoutMutation,
   ]);
 
   useEffect(() => {
+    try {
+      if (user?.role === "admin") {
+        localStorage.setItem("manus-runtime-user-info", JSON.stringify(user));
+      } else {
+        localStorage.removeItem("manus-runtime-user-info");
+      }
+    } catch {
+      // Storage is optional; the validated server session remains authoritative.
+    }
+  }, [user]);
+
+  const state = useMemo(
+    () => ({
+      user,
+      loading:
+        meQuery.isLoading ||
+        oauthLogoutMutation.isPending ||
+        clientLogoutMutation.isPending,
+      error:
+        meQuery.error ??
+        oauthLogoutMutation.error ??
+        clientLogoutMutation.error ??
+        null,
+      isAuthenticated: Boolean(user),
+    }),
+    [
+      clientLogoutMutation.error,
+      clientLogoutMutation.isPending,
+      meQuery.error,
+      meQuery.isLoading,
+      oauthLogoutMutation.error,
+      oauthLogoutMutation.isPending,
+      user,
+    ]
+  );
+
+  useEffect(() => {
     if (!redirectOnUnauthenticated) return;
-    if (meQuery.isLoading || logoutMutation.isPending) return;
+    if (
+      meQuery.isLoading ||
+      oauthLogoutMutation.isPending ||
+      clientLogoutMutation.isPending
+    ) {
+      return;
+    }
     if (state.user) return;
     if (typeof window === "undefined") return;
     if (redirectPath && window.location.pathname === redirectPath) return;
 
-    // Navigate at this moment only. startLogin() mints the nonce + cookie itself.
     if (redirectPath) {
       window.location.href = redirectPath;
     } else {
       startLogin();
     }
   }, [
+    clientLogoutMutation.isPending,
+    meQuery.isLoading,
+    oauthLogoutMutation.isPending,
     redirectOnUnauthenticated,
     redirectPath,
-    logoutMutation.isPending,
-    meQuery.isLoading,
     state.user,
   ]);
 

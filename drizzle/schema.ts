@@ -257,12 +257,21 @@ export const coachingClients = mysqlTable(
   "coachingClients",
   {
     id: varchar("id", { length: 64 }).primaryKey(),
-    email: varchar("email", { length: 320 }).notNull().unique(),
+    /** Optional contact information; it is never an authentication identity. */
+    email: varchar("email", { length: 320 }),
     name: varchar("name", { length: 180 }).notNull(),
     status: mysqlEnum("status", ["active", "revoked"])
       .notNull()
       .default("active"),
     revision: int("revision").notNull().default(1),
+    /** SHA-256 lookup fingerprint for an active personal code, never returned. */
+    codeLookupHash: varchar("codeLookupHash", { length: 64 }).unique(),
+    /** Serialized salted scrypt verifier for an active personal code, never returned. */
+    codeVerifier: varchar("codeVerifier", { length: 512 }),
+    /** Monotonic invalidation generation for code-backed sessions. */
+    codeVersion: int("codeVersion").notNull().default(0),
+    codeIssuedAt: datetime("codeIssuedAt"),
+    lastCodeLoginAt: datetime("lastCodeLoginAt"),
     createdBy: int("createdBy")
       .notNull()
       .references(() => users.id, {
@@ -278,6 +287,50 @@ export const coachingClients = mysqlTable(
   },
   table => [index("coachingClients_status_idx").on(table.status)]
 );
+
+/**
+ * Opaque client sessions. Only a SHA-256 token fingerprint is persisted; a
+ * session is valid only while its client has the same current codeVersion.
+ */
+export const clientCodeSessions = mysqlTable(
+  "clientCodeSessions",
+  {
+    tokenHash: varchar("tokenHash", { length: 64 }).primaryKey(),
+    clientId: varchar("clientId", { length: 64 })
+      .notNull()
+      .references(() => coachingClients.id, {
+        onDelete: "restrict",
+        onUpdate: "cascade",
+      }),
+    codeVersion: int("codeVersion").notNull(),
+    expiresAt: datetime("expiresAt").notNull(),
+    revokedAt: datetime("revokedAt"),
+    createdAt: datetime("createdAt")
+      .default(sql`(CURRENT_TIMESTAMP)`)
+      .notNull(),
+  },
+  table => [
+    index("clientCodeSessions_client_active_idx").on(
+      table.clientId,
+      table.revokedAt,
+      table.expiresAt
+    ),
+  ]
+);
+
+/**
+ * Persistent, privacy-preserving login limiter. scopeHash is derived from the
+ * requester network/fingerprint and never stores an IP address or a code.
+ */
+export const clientCodeAttempts = mysqlTable("clientCodeAttempts", {
+  scopeHash: varchar("scopeHash", { length: 64 }).primaryKey(),
+  windowStartedAt: datetime("windowStartedAt").notNull(),
+  attempts: int("attempts").notNull().default(0),
+  blockedUntil: datetime("blockedUntil"),
+  updatedAt: datetime("updatedAt")
+    .default(sql`(CURRENT_TIMESTAMP)`)
+    .notNull(),
+});
 
 /** Per-client course assignments. Client records and courses are never deleted here. */
 export const clientCourseAccess = mysqlTable(
@@ -338,5 +391,7 @@ export type ContentLessonRow = typeof contentLessons.$inferSelect;
 export type ContentUploadRow = typeof contentUploads.$inferSelect;
 export type ContentVideoJobRow = typeof contentVideoJobs.$inferSelect;
 export type CoachingClientRow = typeof coachingClients.$inferSelect;
+export type ClientCodeSessionRow = typeof clientCodeSessions.$inferSelect;
+export type ClientCodeAttemptRow = typeof clientCodeAttempts.$inferSelect;
 export type ClientCourseAccessRow = typeof clientCourseAccess.$inferSelect;
 export type PrivateMediaRow = typeof privateMedia.$inferSelect;

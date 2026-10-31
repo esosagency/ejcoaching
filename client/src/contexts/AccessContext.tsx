@@ -7,19 +7,19 @@ import {
   useMemo,
   useRef,
 } from "react";
-import type { AccessInfo } from "@shared/clientAccess";
 import { trpc } from "@/lib/trpc";
+import type { AccessInfo } from "@shared/clientAccess";
 
 type AccessError = {
   message: string;
 };
 
 type AccessContextValue = {
-  /** Undefined while the current OAuth session is being verified. */
+  /** Undefined while the current effective principal is being verified. */
   access: AccessInfo | undefined;
   loading: boolean;
   error: AccessError | null;
-  /** Refetches both the OAuth session and its matching access decision. */
+  /** Refetches both the effective principal and its matching access decision. */
   retry: () => void;
 };
 
@@ -33,13 +33,9 @@ function errorMessage(error: unknown): AccessError | null {
 }
 
 /**
- * Supplies the server-authoritative client access decision for the current
- * Manus OAuth session. Access is intentionally never persisted in browser
- * storage: approval and revocation must take effect on the next request.
- *
- * The current auth identity is observed independently. When it changes, the
- * `clients.me` query is invalidated and a response belonging to another
- * identity is never exposed to consumers while the fresh decision is pending.
+ * Supplies the server-authoritative access decision for the current effective
+ * principal. Client-code sessions and OAuth administrators are deliberately
+ * compared by accountKey, never by a fabricated client user id.
  */
 export function AccessProvider({ children }: { children: ReactNode }) {
   const utils = trpc.useUtils();
@@ -54,46 +50,43 @@ export function AccessProvider({ children }: { children: ReactNode }) {
     refetchOnWindowFocus: true,
   });
 
-  const knownIdentityId = sessionQuery.isLoading
+  const sessionProfile = sessionQuery.data;
+  const accessResult = accessQuery.data;
+  const knownAccountKey = sessionQuery.isLoading
     ? undefined
-    : (sessionQuery.data?.id ?? null);
-  const previousIdentityId = useRef<number | null | undefined>(undefined);
+    : (sessionProfile?.accountKey ?? null);
+  const previousAccountKey = useRef<string | null | undefined>(undefined);
 
   useEffect(() => {
-    if (knownIdentityId === undefined) return;
-    if (previousIdentityId.current === knownIdentityId) return;
+    if (knownAccountKey === undefined) return;
+    if (previousAccountKey.current === knownAccountKey) return;
 
-    previousIdentityId.current = knownIdentityId;
-    // This runs for the first resolved session too. It makes a remounted
-    // provider refetch instead of trusting a previous account's cache entry.
-    // reset removes old data immediately; its active-query refetch obtains the
-    // access decision for the just-resolved OAuth identity.
+    previousAccountKey.current = knownAccountKey;
+    // Changing principals must never expose a prior account's course decision.
+    // A same-account window-focus recheck does not reset this query, preserving
+    // active editors and native camera/file pickers behind the refresh mask.
     void utils.clients.me.reset();
-  }, [knownIdentityId, utils]);
+  }, [knownAccountKey, utils]);
 
   const accessBelongsToCurrentSession = useMemo(() => {
-    const result = accessQuery.data;
-    if (!result) return true;
+    if (!accessResult) return true;
     if (sessionQuery.isLoading) return false;
 
-    if (!result.authenticated) return !sessionQuery.data;
+    if (!accessResult.authenticated) return !sessionProfile;
 
-    // Authenticated AccessInfo responses include the authenticated user under
-    // the access contract. Fail closed until an identity-matched response is
-    // available, rather than briefly rendering a prior account's permission.
     return Boolean(
-      sessionQuery.data &&
-        result.user &&
-        result.user.id === sessionQuery.data.id
+      sessionProfile &&
+        accessResult.user &&
+        accessResult.user.accountKey === sessionProfile.accountKey
     );
-  }, [accessQuery.data, sessionQuery.data, sessionQuery.isLoading]);
+  }, [accessResult, sessionProfile, sessionQuery.isLoading]);
 
   const retry = useCallback(() => {
     void Promise.all([sessionQuery.refetch(), accessQuery.refetch()]);
-  }, [accessQuery]);
+  }, [accessQuery, sessionQuery]);
 
   const error = errorMessage(accessQuery.error ?? sessionQuery.error);
-  const access = accessBelongsToCurrentSession ? accessQuery.data : undefined;
+  const access = accessBelongsToCurrentSession ? accessResult : undefined;
   const loading =
     sessionQuery.isLoading ||
     accessQuery.isLoading ||

@@ -113,8 +113,9 @@ describe("account browser storage", () => {
       getItem: (key: string) => data.get(key) ?? null,
       setItem: (key: string, value: string) => data.set(key, value),
     });
-    const owner = accountStorageKey(1, "notes-lesson");
-    const client = accountStorageKey(2, "notes-lesson");
+    const owner = accountStorageKey("1", "notes-lesson");
+    const client = accountStorageKey("client_unit", "notes-lesson");
+    expect(owner).toBe("ej-account-1-notes-lesson");
     expect(owner).not.toBe(client);
     expect(
       readAccountStorage(client, "ej-demo-notes-lesson", false)

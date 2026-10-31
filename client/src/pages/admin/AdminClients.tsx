@@ -5,9 +5,13 @@ import {
   BadgeCheck,
   BookOpenCheck,
   CirclePlus,
+  Clock3,
+  Copy,
+  KeyRound,
   LoaderCircle,
   Mail,
   Pencil,
+  Power,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -15,6 +19,7 @@ import {
   UserRound,
   X,
 } from "lucide-react";
+import { useLocation } from "wouter";
 import type { Course } from "@shared/content";
 import AdminGate from "@/components/AdminGate";
 import { trpc } from "@/lib/trpc";
@@ -24,13 +29,16 @@ import "./AdminClients.css";
 type ClientStatus = "active" | "revoked";
 type ClientRecord = {
   id: string;
-  email: string;
+  email: string | null;
   name: string;
   status: ClientStatus;
   revision: number;
   courseIds: string[];
   createdAt: string;
   updatedAt: string;
+  codeEnabled: boolean;
+  codeIssuedAt: string | null;
+  lastCodeLoginAt: string | null;
 };
 type ClientDraft = {
   email: string;
@@ -43,6 +51,16 @@ type StatusChange = {
   name: string;
   status: ClientStatus;
   revision: number;
+};
+type CodeAction = {
+  id: string;
+  name: string;
+  revision: number;
+  kind: "issue" | "replace" | "disable";
+};
+type RevealedCode = {
+  clientName: string;
+  code: string;
 };
 type StatusFilter = "all" | ClientStatus;
 
@@ -82,6 +100,16 @@ function emptyDraft(): ClientDraft {
   return { email: "", name: "", courseIds: [] };
 }
 
+function codeState(client: ClientRecord) {
+  if (client.codeEnabled) {
+    return { label: "Code actif", className: "is-enabled" };
+  }
+  if (client.codeIssuedAt) {
+    return { label: "Code désactivé", className: "is-disabled" };
+  }
+  return { label: "Sans code", className: "is-none" };
+}
+
 function ClientFormDialog({
   mode,
   client,
@@ -106,7 +134,7 @@ function ClientFormDialog({
   const [draft, setDraft] = useState<ClientDraft>(() =>
     client
       ? {
-          email: client.email,
+          email: client.email ?? "",
           name: client.name,
           courseIds: client.courseIds,
           revision: client.revision,
@@ -119,7 +147,7 @@ function ClientFormDialog({
     setDraft(
       client
         ? {
-            email: client.email,
+            email: client.email ?? "",
             name: client.name,
             courseIds: client.courseIds,
             revision: client.revision,
@@ -127,8 +155,7 @@ function ClientFormDialog({
         : emptyDraft()
     );
     setError(null);
-    // Do not depend on the entire client record: a refetch after a conflict
-    // must not replace this administrator's unsaved name/course selections.
+    // A background list refetch must not replace unsaved client/course choices.
   }, [client?.id, mode]);
 
   useEffect(() => {
@@ -150,12 +177,12 @@ function ClientFormDialog({
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!draft.email.trim()) {
-      setError("Entre une adresse courriel avant de continuer.");
+    if (!draft.name.trim()) {
+      setError("Entre le nom du client avant de continuer.");
       return;
     }
     if (coursesLoading || coursesError) {
-      setError("Les cours doivent être chargés avant d’enregistrer l’accès.");
+      setError("Les cours doivent être chargés avant d’enregistrer le client.");
       return;
     }
 
@@ -163,8 +190,10 @@ function ClientFormDialog({
     try {
       await onSave({
         ...draft,
-        email: draft.email.trim(),
         name: draft.name.trim(),
+        // An empty contact is intentionally sent as empty and normalized to
+        // null by the contract; it is not a login identity.
+        email: draft.email.trim(),
       });
     } catch (caught) {
       if (
@@ -177,19 +206,18 @@ function ClientFormDialog({
         getErrorMessage(
           caught,
           mode === "create"
-            ? "L’approbation n’a pas pu être enregistrée. Réessaie."
+            ? "Le client n’a pas pu être enregistré. Réessaie."
             : "Les modifications n’ont pas pu être enregistrées. Réessaie."
         )
       );
     }
   };
 
-  const title =
-    mode === "create" ? "Approuver une personne" : "Modifier l’accès";
+  const title = mode === "create" ? "Créer un client" : "Modifier le client";
   const submitLabel =
-    mode === "create" ? "Approuver l’accès" : "Enregistrer les modifications";
+    mode === "create" ? "Créer le client" : "Enregistrer les modifications";
   const formId =
-    mode === "create" ? "client-approval" : `client-edit-${client?.id ?? ""}`;
+    mode === "create" ? "client-create" : `client-edit-${client?.id ?? ""}`;
 
   return (
     <div
@@ -209,13 +237,13 @@ function ClientFormDialog({
           <div>
             <p className="eyebrow">
               <span className="eyebrow-line" />
-              {mode === "create" ? "NOUVEL ACCÈS" : "ACCÈS CLIENT"}
+              {mode === "create" ? "NOUVEAU CLIENT" : "CLIENT EJ COACHING"}
             </p>
             <h2 id={`${formId}-title`}>{title}</h2>
             <p>
               {mode === "create"
-                ? "La personne utilisera son compte Manus existant avec cette adresse courriel. Aucune invitation par courriel n’est envoyée."
-                : "L’adresse courriel est liée au compte Manus de la personne et ne peut pas être modifiée ici."}
+                ? "Crée le dossier, attribue les cours, puis génère un code personnel à remettre au client."
+                : "Les cours attribués restent liés à ce client. Son code personnel se gère séparément."}
             </p>
           </div>
           <button
@@ -232,33 +260,9 @@ function ClientFormDialog({
         <form onSubmit={submit}>
           <div className="admin-form-grid">
             <label className="admin-field is-full">
-              <span>Adresse courriel Manus</span>
-              {mode === "create" ? (
-                <input
-                  autoFocus
-                  type="email"
-                  autoComplete="email"
-                  value={draft.email}
-                  onChange={event =>
-                    setDraft(current => ({
-                      ...current,
-                      email: event.target.value,
-                    }))
-                  }
-                  placeholder="nom@exemple.ca"
-                  required
-                  disabled={saving}
-                />
-              ) : (
-                <p className="client-readonly-email">
-                  <Mail size={16} aria-hidden="true" /> {client?.email}
-                </p>
-              )}
-            </label>
-
-            <label className="admin-field is-full">
-              <span>Nom affiché</span>
+              <span>Nom du client</span>
               <input
+                autoFocus
                 autoComplete="name"
                 value={draft.name}
                 onChange={event =>
@@ -267,12 +271,47 @@ function ClientFormDialog({
                     name: event.target.value,
                   }))
                 }
-                placeholder="Ex. Marie Tremblay (facultatif)"
+                placeholder="Ex. Marie Tremblay"
+                required
                 disabled={saving}
               />
               <small>
-                Ce nom aide à reconnaître la personne dans l’administration.
+                Le nom sert seulement à reconnaître le client dans
+                l’administration.
               </small>
+            </label>
+
+            <label className="admin-field is-full">
+              <span>
+                Courriel de contact <em>(facultatif)</em>
+              </span>
+              {mode === "create" ? (
+                <>
+                  <input
+                    type="email"
+                    autoComplete="email"
+                    value={draft.email}
+                    onChange={event =>
+                      setDraft(current => ({
+                        ...current,
+                        email: event.target.value,
+                      }))
+                    }
+                    placeholder="nom@exemple.ca"
+                    disabled={saving}
+                  />
+                  <small>
+                    Ce courriel est un contact seulement; il ne sert pas à
+                    ouvrir une session et aucun message n’est envoyé
+                    automatiquement.
+                  </small>
+                </>
+              ) : (
+                <p className="client-readonly-email">
+                  <Mail size={16} aria-hidden="true" />
+                  {client?.email || "Aucun courriel de contact"}
+                </p>
+              )}
             </label>
 
             <fieldset
@@ -283,9 +322,8 @@ function ClientFormDialog({
                 Cours à attribuer <span>(choix explicites)</span>
               </legend>
               <p className="client-course-help">
-                Sélectionne uniquement les cours auxquels cette personne doit
-                avoir accès. Les brouillons peuvent être attribués pour une
-                sortie future, mais restent invisibles avant leur publication.
+                Sélectionne uniquement les cours auxquels ce client doit avoir
+                accès. Les brouillons restent invisibles avant leur publication.
               </p>
 
               {coursesLoading ? (
@@ -396,7 +434,7 @@ function StatusConfirmationDialog({
   onConfirm: () => void;
 }) {
   const isRevoking = change.status === "revoked";
-  const firstName = change.name.trim() || "cette personne";
+  const firstName = change.name.trim() || "ce client";
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -425,8 +463,8 @@ function StatusConfirmationDialog({
             </h2>
             <p id="client-status-description">
               {isRevoking
-                ? `Après confirmation, ${firstName} ne pourra plus ouvrir ses cours avec son compte Manus.`
-                : `Après confirmation, ${firstName} retrouvera l’accès à ses cours déjà attribués.`}
+                ? `Après confirmation, ${firstName} ne pourra plus ouvrir ses cours. Les sessions existantes seront invalidées.`
+                : `Après confirmation, ${firstName} retrouvera seulement l’accès accordé à ses cours et à un code actif.`}
             </p>
           </div>
           <button
@@ -439,11 +477,10 @@ function StatusConfirmationDialog({
             <X size={20} />
           </button>
         </header>
-
         {isRevoking && (
           <p className="client-confirm-note">
-            Les attributions de cours sont conservées au cas où l’accès est
-            réactivé plus tard.
+            Les attributions de cours sont conservées, mais réactiver le client
+            ne réactive pas d’anciennes sessions.
           </p>
         )}
         {error && (
@@ -485,7 +522,207 @@ function StatusConfirmationDialog({
   );
 }
 
+function CodeConfirmationDialog({
+  action,
+  saving,
+  error,
+  onClose,
+  onConfirm,
+}: {
+  action: CodeAction;
+  saving: boolean;
+  error: string | null;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  const clientName = action.name.trim() || "ce client";
+  const isDisable = action.kind === "disable";
+  const isReplace = action.kind === "replace";
+  const title = isDisable
+    ? "Désactiver ce code?"
+    : isReplace
+      ? "Remplacer le code personnel?"
+      : "Générer un code personnel?";
+  const description = isDisable
+    ? `Après confirmation, ${clientName} ne pourra plus ouvrir son espace avec ce code et ses sessions seront invalidées.`
+    : isReplace
+      ? `Le code précédent de ${clientName} cessera immédiatement de fonctionner et ses sessions seront invalidées.`
+      : `Le nouveau code de ${clientName} sera affiché une seule fois après la confirmation.`;
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !saving) onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose, saving]);
+
+  return (
+    <div className="admin-modal-backdrop" role="presentation">
+      <section
+        className="admin-modal panel client-confirm-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="client-code-action-title"
+      >
+        <header className="admin-modal-header">
+          <div>
+            <p className="eyebrow">
+              <span className="eyebrow-line" /> CODE PERSONNEL
+            </p>
+            <h2 id="client-code-action-title">{title}</h2>
+            <p>{description}</p>
+          </div>
+          <button
+            type="button"
+            className="icon-button admin-modal-close client-icon-button"
+            aria-label="Fermer la confirmation"
+            onClick={onClose}
+            disabled={saving}
+          >
+            <X size={20} />
+          </button>
+        </header>
+        {(isReplace || isDisable) && (
+          <p className="client-confirm-note">
+            Cette action est immédiate. Tu ne peux pas récupérer ni revoir un
+            ancien code.
+          </p>
+        )}
+        {error && (
+          <p className="admin-form-error" role="alert">
+            <AlertCircle size={16} /> {error}
+          </p>
+        )}
+        <footer className="admin-form-actions">
+          <button
+            type="button"
+            className="btn secondary"
+            onClick={onClose}
+            disabled={saving}
+          >
+            Annuler
+          </button>
+          <button
+            type="button"
+            className={`btn ${isDisable ? "client-danger-action" : "primary"}`}
+            onClick={onConfirm}
+            disabled={saving}
+          >
+            {saving ? (
+              <LoaderCircle size={17} className="admin-spin-icon" />
+            ) : isDisable ? (
+              <Power size={17} />
+            ) : (
+              <KeyRound size={17} />
+            )}
+            {saving
+              ? "Enregistrement…"
+              : isDisable
+                ? "Oui, désactiver le code"
+                : isReplace
+                  ? "Oui, remplacer le code"
+                  : "Générer le code"}
+          </button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function RevealedCodeDialog({
+  secret,
+  onClose,
+}: {
+  secret: RevealedCode;
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  const copyCode = async () => {
+    setCopyError(null);
+    try {
+      await navigator.clipboard.writeText(secret.code);
+      setCopied(true);
+    } catch {
+      setCopyError(
+        "La copie automatique est indisponible. Sélectionne le code affiché pour le copier."
+      );
+    }
+  };
+
+  return (
+    <div className="admin-modal-backdrop" role="presentation">
+      <section
+        className="admin-modal panel client-secret-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="client-secret-title"
+      >
+        <header className="admin-modal-header">
+          <div>
+            <p className="eyebrow">
+              <span className="eyebrow-line" /> CODE PRÊT À REMETTRE
+            </p>
+            <h2 id="client-secret-title">
+              Code de {secret.clientName || "ce client"}
+            </h2>
+            <p>
+              Copie-le maintenant : il ne sera plus affiché après la fermeture.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="icon-button admin-modal-close client-icon-button"
+            aria-label="Fermer le code"
+            onClick={onClose}
+          >
+            <X size={20} />
+          </button>
+        </header>
+        <output
+          className="client-secret-code"
+          aria-label="Code personnel généré"
+        >
+          {secret.code}
+        </output>
+        <p className="client-secret-warning">
+          Ne l’enregistre pas dans la liste de clients. Transmets-le de façon
+          sécurisée au client concerné.
+        </p>
+        {copyError && (
+          <p className="admin-form-error" role="alert">
+            <AlertCircle size={16} /> {copyError}
+          </p>
+        )}
+        <footer className="admin-form-actions">
+          <button type="button" className="btn secondary" onClick={onClose}>
+            Fermer
+          </button>
+          <button
+            type="button"
+            className="btn primary"
+            onClick={() => void copyCode()}
+          >
+            <Copy size={17} /> {copied ? "Code copié" : "Copier le code"}
+          </button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
 function AdminClientsContent() {
+  const [location] = useLocation();
   const clientsQuery = trpc.clients.adminList.useQuery(undefined, {
     retry: false,
     refetchOnWindowFocus: false,
@@ -497,6 +734,8 @@ function AdminClientsContent() {
   const approveClient = trpc.clients.approve.useMutation();
   const updateClient = trpc.clients.update.useMutation();
   const setClientStatus = trpc.clients.setStatus.useMutation();
+  const issueCode = trpc.clients.issueCode.useMutation();
+  const disableCode = trpc.clients.disableCode.useMutation();
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -504,8 +743,20 @@ function AdminClientsContent() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [pendingStatus, setPendingStatus] = useState<StatusChange | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
+  const [pendingCodeAction, setPendingCodeAction] = useState<CodeAction | null>(
+    null
+  );
+  const [codeActionError, setCodeActionError] = useState<string | null>(null);
+  const [revealedCode, setRevealedCode] = useState<RevealedCode | null>(null);
 
-  const clients = (clientsQuery.data ?? []) as ClientRecord[];
+  // The raw secret has a deliberately short lifetime: navigation immediately
+  // removes it from React state, and it is never written to browser storage.
+  useEffect(() => {
+    setRevealedCode(null);
+    setCodeActionError(null);
+  }, [location]);
+
+  const clients = (clientsQuery.data ?? []) as unknown as ClientRecord[];
   const courses = (coursesQuery.data ?? []) as Course[];
   const editingClient = clients.find(client => client.id === editingId) ?? null;
 
@@ -520,7 +771,7 @@ function AdminClientsContent() {
         statusFilter === "all" || client.status === statusFilter;
       const matchesSearch =
         !term ||
-        [client.name, client.email]
+        [client.name, client.email ?? ""]
           .join(" ")
           .toLocaleLowerCase("fr-CA")
           .includes(term);
@@ -535,7 +786,7 @@ function AdminClientsContent() {
 
   const refreshClients = async () => {
     const result = await clientsQuery.refetch();
-    return (result.data ?? []) as ClientRecord[];
+    return (result.data ?? []) as unknown as ClientRecord[];
   };
 
   const revisionAfterConflict = async (clientId: string) => {
@@ -543,7 +794,6 @@ function AdminClientsContent() {
       const freshClients = await refreshClients();
       return freshClients.find(client => client.id === clientId)?.revision;
     } catch {
-      // The conflict feedback is still useful even if the refresh temporarily fails.
       return undefined;
     }
   };
@@ -564,7 +814,6 @@ function AdminClientsContent() {
         "Ce client n’est plus disponible. Ferme la fenêtre et réessaie."
       );
     }
-
     try {
       await updateClient.mutateAsync({
         id: editingClient.id,
@@ -588,7 +837,6 @@ function AdminClientsContent() {
 
   const confirmStatusChange = async () => {
     if (!pendingStatus) return;
-
     setStatusError(null);
     try {
       await setClientStatus.mutateAsync({
@@ -622,6 +870,61 @@ function AdminClientsContent() {
     }
   };
 
+  const confirmCodeAction = async () => {
+    if (!pendingCodeAction) return;
+    setCodeActionError(null);
+    try {
+      if (pendingCodeAction.kind === "disable") {
+        await disableCode.mutateAsync({
+          id: pendingCodeAction.id,
+          revision: pendingCodeAction.revision,
+        });
+        await refreshClients();
+        setPendingCodeAction(null);
+        return;
+      }
+
+      const result = await issueCode.mutateAsync({
+        id: pendingCodeAction.id,
+        revision: pendingCodeAction.revision,
+      });
+      if (!result.code) {
+        throw new Error(
+          "Le code n’a pas pu être affiché. Réessaie de le générer."
+        );
+      }
+      // Reveal before the optional list refresh: the secret must not be lost if
+      // a harmless refetch fails immediately after a successful issuance.
+      setRevealedCode({
+        clientName: pendingCodeAction.name,
+        code: result.code,
+      });
+      setPendingCodeAction(null);
+      void refreshClients().catch(() => undefined);
+    } catch (caught) {
+      if (isConflictError(caught)) {
+        const revision = await revisionAfterConflict(pendingCodeAction.id);
+        if (revision !== undefined) {
+          setPendingCodeAction(current =>
+            current && current.id === pendingCodeAction.id
+              ? { ...current, revision }
+              : current
+          );
+        }
+        setCodeActionError(
+          "Un changement récent a été détecté. La liste a été actualisée; confirme à nouveau l’action si elle est toujours souhaitée."
+        );
+        return;
+      }
+      setCodeActionError(
+        getErrorMessage(
+          caught,
+          "Cette action sur le code n’a pas pu être enregistrée. Réessaie."
+        )
+      );
+    }
+  };
+
   const startStatusChange = (client: ClientRecord) => {
     setStatusError(null);
     setPendingStatus({
@@ -632,6 +935,16 @@ function AdminClientsContent() {
     });
   };
 
+  const startCodeAction = (client: ClientRecord, kind: CodeAction["kind"]) => {
+    setCodeActionError(null);
+    setPendingCodeAction({
+      id: client.id,
+      name: client.name,
+      revision: client.revision,
+      kind,
+    });
+  };
+
   return (
     <div className="admin-page admin-clients-page">
       <header className="admin-heading client-heading">
@@ -639,11 +952,11 @@ function AdminClientsContent() {
           <p className="eyebrow">
             <span className="eyebrow-line" /> ADMINISTRATION
           </p>
-          <h1 className="page-title">Gérer les accès clients</h1>
+          <h1 className="page-title">Gérer les clients</h1>
           <p className="admin-lead">
-            Approuve les comptes Manus et attribue les cours un à un. Aucune
-            invitation par courriel n’est envoyée : la personne se connecte avec
-            son compte existant et l’adresse approuvée.
+            Crée les dossiers clients, attribue les cours et génère des codes
+            personnels. Les codes ne sont jamais conservés ni affichés dans
+            cette liste.
           </p>
         </div>
         <div className="admin-heading-actions">
@@ -652,7 +965,7 @@ function AdminClientsContent() {
             className="btn primary"
             onClick={() => setCreating(true)}
           >
-            <CirclePlus size={18} /> Approuver une personne
+            <CirclePlus size={18} /> Créer un client
           </button>
         </div>
       </header>
@@ -663,11 +976,10 @@ function AdminClientsContent() {
       >
         <div className="admin-toolbar client-toolbar">
           <div className="admin-toolbar-copy">
-            <h2 id="client-list-title">Accès approuvés</h2>
+            <h2 id="client-list-title">Clients</h2>
             <p>
               {activeCount} actif{activeCount === 1 ? "" : "s"} · {revokedCount}{" "}
-              révoqué
-              {revokedCount === 1 ? "" : "s"}
+              révoqué{revokedCount === 1 ? "" : "s"}
             </p>
           </div>
           <div className="admin-filters client-filters">
@@ -690,7 +1002,7 @@ function AdminClientsContent() {
               }
               aria-label="Filtrer par état d’accès"
             >
-              <option value="all">Tous les accès</option>
+              <option value="all">Tous les clients</option>
               <option value="active">Actifs</option>
               <option value="revoked">Révoqués</option>
             </select>
@@ -700,13 +1012,13 @@ function AdminClientsContent() {
         {clientsQuery.isLoading ? (
           <div className="admin-loading" aria-live="polite">
             <LoaderCircle size={26} className="admin-spin-icon" /> Chargement
-            des accès…
+            des clients…
           </div>
         ) : clientsQuery.isError ? (
           <div className="admin-query-error" role="alert">
             <AlertCircle size={27} />
-            <h2>Impossible de charger les accès</h2>
-            <p>Réessaie dans un instant. Aucun accès n’a été modifié.</p>
+            <h2>Impossible de charger les clients</h2>
+            <p>Réessaie dans un instant. Aucun client n’a été modifié.</p>
             <button
               type="button"
               className="btn secondary"
@@ -719,11 +1031,15 @@ function AdminClientsContent() {
           <div className="client-list" role="list">
             {visibleClients.map(client => {
               const isActive = client.status === "active";
+              const code = codeState(client);
               const assignments = client.courseIds
                 .map(
                   courseId => courseNames.get(courseId) ?? "Cours indisponible"
                 )
                 .join(" · ");
+              const initial = (client.name.trim() || client.email || "E")
+                .slice(0, 1)
+                .toLocaleUpperCase("fr-CA");
               return (
                 <article
                   className="client-card"
@@ -731,28 +1047,32 @@ function AdminClientsContent() {
                   role="listitem"
                 >
                   <div className="client-avatar" aria-hidden="true">
-                    {(client.name.trim() || client.email)
-                      .slice(0, 1)
-                      .toLocaleUpperCase("fr-CA")}
+                    {initial}
                   </div>
                   <div className="client-card-main">
                     <div className="client-card-topline">
                       <div>
-                        <h3>{client.name.trim() || "Nom non indiqué"}</h3>
+                        <h3>{client.name.trim() || "Client sans nom"}</h3>
                         <p className="client-email">
-                          <Mail size={14} aria-hidden="true" /> {client.email}
+                          <Mail size={14} aria-hidden="true" />
+                          {client.email || "Aucun courriel de contact"}
                         </p>
                       </div>
-                      <span
-                        className={`client-status ${isActive ? "is-active" : "is-revoked"}`}
-                      >
-                        {isActive ? (
-                          <BadgeCheck size={14} />
-                        ) : (
-                          <ShieldOff size={14} />
-                        )}
-                        {isActive ? "Approuvé" : "Révoqué"}
-                      </span>
+                      <div className="client-card-badges">
+                        <span
+                          className={`client-status ${isActive ? "is-active" : "is-revoked"}`}
+                        >
+                          {isActive ? (
+                            <BadgeCheck size={14} />
+                          ) : (
+                            <ShieldOff size={14} />
+                          )}
+                          {isActive ? "Actif" : "Révoqué"}
+                        </span>
+                        <span className={`client-code-state ${code.className}`}>
+                          <KeyRound size={13} /> {code.label}
+                        </span>
+                      </div>
                     </div>
                     <div className="client-card-details">
                       <span>
@@ -760,6 +1080,17 @@ function AdminClientsContent() {
                         {client.courseIds.length} cours attribué
                         {client.courseIds.length === 1 ? "" : "s"}
                       </span>
+                      {client.codeIssuedAt && (
+                        <span>
+                          Code émis le {formatDate(client.codeIssuedAt)}
+                        </span>
+                      )}
+                      {client.lastCodeLoginAt && (
+                        <span>
+                          <Clock3 size={14} aria-hidden="true" /> Dernière
+                          entrée le {formatDate(client.lastCodeLoginAt)}
+                        </span>
+                      )}
                       <span>Mis à jour le {formatDate(client.updatedAt)}</span>
                     </div>
                     <p
@@ -774,10 +1105,36 @@ function AdminClientsContent() {
                       type="button"
                       className="btn secondary"
                       onClick={() => setEditingId(client.id)}
-                      aria-label={`Modifier l’accès de ${client.name.trim() || client.email}`}
+                      aria-label={`Modifier ${client.name.trim() || client.email || "ce client"}`}
                     >
                       <Pencil size={16} /> Modifier
                     </button>
+                    {isActive && (
+                      <button
+                        type="button"
+                        className="btn secondary client-code-button"
+                        onClick={() =>
+                          startCodeAction(
+                            client,
+                            client.codeEnabled ? "replace" : "issue"
+                          )
+                        }
+                      >
+                        <KeyRound size={16} />{" "}
+                        {client.codeEnabled
+                          ? "Remplacer le code"
+                          : "Générer le code"}
+                      </button>
+                    )}
+                    {client.codeEnabled && (
+                      <button
+                        type="button"
+                        className="btn secondary client-disable-code-button"
+                        onClick={() => startCodeAction(client, "disable")}
+                      >
+                        <Power size={16} /> Désactiver le code
+                      </button>
+                    )}
                     <button
                       type="button"
                       className={`btn ${isActive ? "client-revoke-button" : "primary"}`}
@@ -798,11 +1155,11 @@ function AdminClientsContent() {
         ) : (
           <div className="admin-empty">
             <UserRound size={28} />
-            <h2>Aucun accès ne correspond</h2>
+            <h2>Aucun client ne correspond</h2>
             <p>
               {search || statusFilter !== "all"
                 ? "Essaie une autre recherche ou enlève le filtre d’état."
-                : "Aucune personne n’est approuvée pour le moment."}
+                : "Aucun client n’est créé pour le moment."}
             </p>
             {search || statusFilter !== "all" ? (
               <button
@@ -821,7 +1178,7 @@ function AdminClientsContent() {
                 className="btn primary"
                 onClick={() => setCreating(true)}
               >
-                <CirclePlus size={17} /> Approuver une personne
+                <CirclePlus size={17} /> Créer un client
               </button>
             )}
           </div>
@@ -859,8 +1216,29 @@ function AdminClientsContent() {
           change={pendingStatus}
           saving={setClientStatus.isPending}
           error={statusError}
-          onClose={() => setPendingStatus(null)}
+          onClose={() => {
+            setPendingStatus(null);
+            setStatusError(null);
+          }}
           onConfirm={() => void confirmStatusChange()}
+        />
+      )}
+      {pendingCodeAction && (
+        <CodeConfirmationDialog
+          action={pendingCodeAction}
+          saving={issueCode.isPending || disableCode.isPending}
+          error={codeActionError}
+          onClose={() => {
+            setPendingCodeAction(null);
+            setCodeActionError(null);
+          }}
+          onConfirm={() => void confirmCodeAction()}
+        />
+      )}
+      {revealedCode && (
+        <RevealedCodeDialog
+          secret={revealedCode}
+          onClose={() => setRevealedCode(null)}
         />
       )}
     </div>

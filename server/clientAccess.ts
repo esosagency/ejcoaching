@@ -1,13 +1,14 @@
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import {
-  adminAccess,
   clientCourseAccess,
   coachingClients,
   contentCourses,
   type User,
 } from "../drizzle/schema";
+import type { CodeClientIdentity } from "../shared/codeAccess";
 import type { AccessInfo } from "../shared/clientAccess";
+import { revokeClientSessions } from "./clientCodes";
 import { getDb } from "./db";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
@@ -18,17 +19,20 @@ type ClientQueryExecutor = Pick<Database, "select">;
 
 export type ClientManagementRow = {
   id: string;
-  email: string;
+  email: string | null;
   name: string;
   status: "active" | "revoked";
   revision: number;
   courseIds: string[];
+  codeEnabled: boolean;
+  codeIssuedAt: string | null;
+  lastCodeLoginAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
 
 export type ApproveClientInput = {
-  email: string;
+  email?: string | null;
   name: string;
   courseIds: string[];
 };
@@ -38,6 +42,8 @@ export type UpdateClientInput = {
   revision: number;
   name: string;
   courseIds: string[];
+  /** Contact only; changing it never changes a login identity. */
+  email?: string | null;
 };
 
 export type SetClientStatusInput = {
@@ -105,7 +111,20 @@ function isAuthenticatedUser(user: User | null): user is User {
   );
 }
 
-/** Normalizes an email consistently before client-access lookups or writes. */
+function isClientIdentity(
+  client: CodeClientIdentity | null | undefined
+): client is CodeClientIdentity {
+  return Boolean(
+    client &&
+      isValidClientId(client.id) &&
+      typeof client.name === "string" &&
+      (client.email === null || typeof client.email === "string") &&
+      Number.isSafeInteger(client.codeVersion) &&
+      client.codeVersion >= 0
+  );
+}
+
+/** Normalizes optional contact email consistently before writes. */
 export function normalizeClientEmail(
   value: string | null | undefined
 ): string | null {
@@ -119,16 +138,22 @@ export function isValidClientEmail(value: string): boolean {
   return value.length <= 320 && EMAIL_PATTERN.test(value);
 }
 
-function currentOAuthEmail(user: User): string | null {
-  const email = normalizeClientEmail(user.email);
-  return email && isValidClientEmail(email) ? email : null;
-}
-
-function accessUser(user: User): AccessInfo["user"] {
+function accessUser(user: User): NonNullable<AccessInfo["user"]> {
   return {
     id: user.id,
+    accountKey: String(user.id),
     name: user.name ?? "",
-    email: normalizeClientEmail(user.email) ?? "",
+    email: normalizeClientEmail(user.email),
+  };
+}
+
+function accessClient(
+  client: CodeClientIdentity
+): NonNullable<AccessInfo["user"]> {
+  return {
+    accountKey: `client_${client.id}`,
+    name: client.name,
+    email: client.email,
   };
 }
 
@@ -141,23 +166,61 @@ function signedOutAccess(): AccessInfo {
   };
 }
 
-async function findClientByEmail(db: ClientQueryExecutor, email: string) {
-  const [client] = await db
-    .select({ id: coachingClients.id, status: coachingClients.status })
+async function findActiveClientIdentity(
+  db: ClientQueryExecutor,
+  client: CodeClientIdentity
+): Promise<CodeClientIdentity | null> {
+  const [current] = await db
+    .select({
+      id: coachingClients.id,
+      name: coachingClients.name,
+      email: coachingClients.email,
+      codeVersion: coachingClients.codeVersion,
+    })
     .from(coachingClients)
-    .where(eq(coachingClients.email, email))
+    .where(
+      and(
+        eq(coachingClients.id, client.id),
+        eq(coachingClients.status, "active"),
+        eq(coachingClients.codeVersion, client.codeVersion)
+      )
+    )
     .limit(1);
-  return client;
+  return current ?? null;
 }
 
 /**
- * Resolves current authorization from the OAuth identity on every call. An
- * administrator is allowed without consulting client-approval records; all
- * other identities must have a current active approval.
+ * Resolves authorization from the effective principal on every call. OAuth
+ * users who are not real administrators are never upgraded through a contact
+ * email; code-client status and codeVersion are always rechecked from MySQL.
  */
-export async function getAccessForUser(user: User | null): Promise<AccessInfo> {
-  if (!isAuthenticatedUser(user)) return signedOutAccess();
+export async function getAccessForUser(
+  user: User | null,
+  client?: CodeClientIdentity | null
+): Promise<AccessInfo> {
+  if (isClientIdentity(client)) {
+    const db = await requireDb();
+    const current = await findActiveClientIdentity(db, client);
+    if (!current) {
+      return {
+        authenticated: true,
+        allowed: false,
+        isAdmin: false,
+        reason: "revoked",
+        user: accessClient(client),
+        clientId: client.id,
+      };
+    }
+    return {
+      authenticated: true,
+      allowed: true,
+      isAdmin: false,
+      user: accessClient(current),
+      clientId: current.id,
+    };
+  }
 
+  if (!isAuthenticatedUser(user)) return signedOutAccess();
   const userInfo = accessUser(user);
   if (user.role === "admin") {
     return {
@@ -168,63 +231,38 @@ export async function getAccessForUser(user: User | null): Promise<AccessInfo> {
     };
   }
 
-  const email = currentOAuthEmail(user);
-  if (!email) {
-    return {
-      authenticated: true,
-      allowed: false,
-      isAdmin: false,
-      reason: "unapproved",
-      user: userInfo,
-    };
-  }
-
-  const db = await requireDb();
-  const client = await findClientByEmail(db, email);
-  if (!client) {
-    return {
-      authenticated: true,
-      allowed: false,
-      isAdmin: false,
-      reason: "unapproved",
-      user: userInfo,
-    };
-  }
-  if (client.status === "revoked") {
-    return {
-      authenticated: true,
-      allowed: false,
-      isAdmin: false,
-      reason: "revoked",
-      user: userInfo,
-      clientId: client.id,
-    };
-  }
-
   return {
     authenticated: true,
-    allowed: true,
+    allowed: false,
     isAdmin: false,
+    reason: "unapproved",
     user: userInfo,
-    clientId: client.id,
   };
 }
 
-/**
- * Returns only active, non-archived published course IDs. The lookup always
- * joins the current client approval and assignment rows so a revocation takes
- * effect at the next access check.
- */
-export async function getAssignedCourseIds(user: User): Promise<string[]> {
-  if (!isAuthenticatedUser(user)) return [];
-
-  if (user.role === "admin") {
+/** Returns only published, active courses visible to the current effective principal. */
+export async function getAssignedCourseIds(
+  user: User | null,
+  client?: CodeClientIdentity | null
+): Promise<string[]> {
+  if (isClientIdentity(client)) {
     const db = await requireDb();
     const courses = await db
       .select({ id: contentCourses.id })
-      .from(contentCourses)
+      .from(clientCourseAccess)
+      .innerJoin(
+        coachingClients,
+        eq(clientCourseAccess.clientId, coachingClients.id)
+      )
+      .innerJoin(
+        contentCourses,
+        eq(clientCourseAccess.courseId, contentCourses.id)
+      )
       .where(
         and(
+          eq(coachingClients.id, client.id),
+          eq(coachingClients.status, "active"),
+          eq(coachingClients.codeVersion, client.codeVersion),
           isNull(contentCourses.archivedAt),
           eq(contentCourses.status, "published")
         )
@@ -233,25 +271,13 @@ export async function getAssignedCourseIds(user: User): Promise<string[]> {
     return courses.map(course => course.id);
   }
 
-  const email = currentOAuthEmail(user);
-  if (!email) return [];
+  if (!isAuthenticatedUser(user) || user.role !== "admin") return [];
   const db = await requireDb();
-
   const courses = await db
     .select({ id: contentCourses.id })
-    .from(clientCourseAccess)
-    .innerJoin(
-      coachingClients,
-      eq(clientCourseAccess.clientId, coachingClients.id)
-    )
-    .innerJoin(
-      contentCourses,
-      eq(clientCourseAccess.courseId, contentCourses.id)
-    )
+    .from(contentCourses)
     .where(
       and(
-        eq(coachingClients.email, email),
-        eq(coachingClients.status, "active"),
         isNull(contentCourses.archivedAt),
         eq(contentCourses.status, "published")
       )
@@ -261,65 +287,62 @@ export async function getAssignedCourseIds(user: User): Promise<string[]> {
 }
 
 /**
- * Privileged administrators may access any active course, including drafts.
- * The present course schema has no separate course-owner column, so its owner
- * authority is represented by the existing administrator role. Clients must
- * satisfy their current approval, assignment, publication, and archive state.
+ * Administrators may access any non-archived course, including drafts. Code
+ * clients require current active status, matching codeVersion and an explicit
+ * assignment to a published non-archived course.
  */
 export async function canAccessCourse(
   user: User | null,
-  courseId: string
+  courseId: string,
+  client?: CodeClientIdentity | null
 ): Promise<boolean> {
   const normalizedCourseId =
     typeof courseId === "string" ? courseId.trim() : "";
-  if (!isAuthenticatedUser(user) || !isValidCourseId(normalizedCourseId)) {
-    return false;
-  }
+  if (!isValidCourseId(normalizedCourseId)) return false;
 
-  if (user.role === "admin") {
+  if (isClientIdentity(client)) {
     const db = await requireDb();
     const [course] = await db
       .select({ id: contentCourses.id })
-      .from(contentCourses)
+      .from(clientCourseAccess)
+      .innerJoin(
+        coachingClients,
+        eq(clientCourseAccess.clientId, coachingClients.id)
+      )
+      .innerJoin(
+        contentCourses,
+        eq(clientCourseAccess.courseId, contentCourses.id)
+      )
       .where(
         and(
+          eq(coachingClients.id, client.id),
+          eq(coachingClients.status, "active"),
+          eq(coachingClients.codeVersion, client.codeVersion),
           eq(contentCourses.id, normalizedCourseId),
-          isNull(contentCourses.archivedAt)
+          isNull(contentCourses.archivedAt),
+          eq(contentCourses.status, "published")
         )
       )
       .limit(1);
     return Boolean(course);
   }
 
-  const email = currentOAuthEmail(user);
-  if (!email) return false;
+  if (!isAuthenticatedUser(user) || user.role !== "admin") return false;
   const db = await requireDb();
-
   const [course] = await db
     .select({ id: contentCourses.id })
-    .from(clientCourseAccess)
-    .innerJoin(
-      coachingClients,
-      eq(clientCourseAccess.clientId, coachingClients.id)
-    )
-    .innerJoin(
-      contentCourses,
-      eq(clientCourseAccess.courseId, contentCourses.id)
-    )
+    .from(contentCourses)
     .where(
       and(
-        eq(coachingClients.email, email),
-        eq(coachingClients.status, "active"),
         eq(contentCourses.id, normalizedCourseId),
-        isNull(contentCourses.archivedAt),
-        eq(contentCourses.status, "published")
+        isNull(contentCourses.archivedAt)
       )
     )
     .limit(1);
   return Boolean(course);
 }
 
-/** Returns client records for administration without private-media metadata. */
+/** Returns client records for administration without code, session or hash material. */
 export async function listClients(): Promise<ClientManagementRow[]> {
   const db = await requireDb();
   const clients = await db
@@ -329,14 +352,17 @@ export async function listClients(): Promise<ClientManagementRow[]> {
       name: coachingClients.name,
       status: coachingClients.status,
       revision: coachingClients.revision,
+      codeLookupHash: coachingClients.codeLookupHash,
+      codeVerifier: coachingClients.codeVerifier,
+      codeIssuedAt: coachingClients.codeIssuedAt,
+      lastCodeLoginAt: coachingClients.lastCodeLoginAt,
       createdAt: coachingClients.createdAt,
       updatedAt: coachingClients.updatedAt,
     })
     .from(coachingClients)
-    .orderBy(asc(coachingClients.email), asc(coachingClients.id));
+    .orderBy(asc(coachingClients.name), asc(coachingClients.id));
 
   if (clients.length === 0) return [];
-
   const assignments = await db
     .select({
       clientId: clientCourseAccess.clientId,
@@ -368,6 +394,11 @@ export async function listClients(): Promise<ClientManagementRow[]> {
     status: client.status,
     revision: client.revision,
     courseIds: courseIdsByClient.get(client.id) ?? [],
+    codeEnabled: Boolean(client.codeLookupHash && client.codeVerifier),
+    codeIssuedAt: client.codeIssuedAt ? toIso(client.codeIssuedAt) : null,
+    lastCodeLoginAt: client.lastCodeLoginAt
+      ? toIso(client.lastCodeLoginAt)
+      : null,
     createdAt: toIso(client.createdAt),
     updatedAt: toIso(client.updatedAt),
   }));
@@ -387,7 +418,6 @@ function normalizeCourseIds(courseIds: readonly string[]): string[] {
       "Sélectionnez au plus 200 cours pour un client."
     );
   }
-
   const normalized = courseIds.map(courseId => courseId.trim());
   if (!normalized.every(isValidCourseId)) {
     throw new ClientAccessValidationError(
@@ -404,21 +434,29 @@ function normalizeCourseIds(courseIds: readonly string[]): string[] {
 
 function normalizeName(name: string): string {
   const normalized = name.trim();
-  if (normalized.length > 180) {
+  if (normalized.length === 0 || normalized.length > 180) {
     throw new ClientAccessValidationError(
-      "Le nom du client doit contenir au plus 180 caractères."
+      "Le nom du client doit contenir entre 1 et 180 caractères."
     );
   }
   return normalized;
 }
 
-function normalizeApprovalInput(input: ApproveClientInput): ApproveClientInput {
-  const email = normalizeClientEmail(input.email);
-  if (!email || !isValidClientEmail(email)) {
+function normalizeContactEmail(
+  value: string | null | undefined
+): string | null {
+  const email = normalizeClientEmail(value);
+  if (email && !isValidClientEmail(email)) {
     throw new ClientAccessValidationError("L’adresse courriel est invalide.");
   }
+  return email;
+}
+
+function normalizeApprovalInput(
+  input: ApproveClientInput
+): Required<ApproveClientInput> {
   return {
-    email,
+    email: normalizeContactEmail(input.email),
     name: normalizeName(input.name),
     courseIds: normalizeCourseIds(input.courseIds),
   };
@@ -435,12 +473,16 @@ function normalizeUpdateInput(input: UpdateClientInput): UpdateClientInput {
       "La révision du client est invalide."
     );
   }
-  return {
+  const normalized: UpdateClientInput = {
     id: input.id.trim(),
     revision: input.revision,
     name: normalizeName(input.name),
     courseIds: normalizeCourseIds(input.courseIds),
   };
+  if (Object.prototype.hasOwnProperty.call(input, "email")) {
+    normalized.email = normalizeContactEmail(input.email);
+  }
+  return normalized;
 }
 
 function isValidClientId(value: unknown): value is string {
@@ -456,7 +498,6 @@ async function assertAssignableCourses(
   courseIds: string[]
 ): Promise<void> {
   if (courseIds.length === 0) return;
-
   const courses = await db
     .select({ id: contentCourses.id })
     .from(contentCourses)
@@ -495,11 +536,7 @@ function assertAdminActorId(createdBy: number): void {
   }
 }
 
-/**
- * Adds one client approval and its explicitly supplied course assignments.
- * An approval may never overwrite an existing (including revoked) email and
- * cannot be created for an address on the administrator allowlist.
- */
+/** Adds a client and explicit assignments. Contact email is optional and never an identity. */
 export async function approveClient(
   createdBy: number,
   rawInput: ApproveClientInput
@@ -509,30 +546,7 @@ export async function approveClient(
   const db = await requireDb();
 
   return db.transaction(async tx => {
-    const [administrator] = await tx
-      .select({ email: adminAccess.email })
-      .from(adminAccess)
-      .where(eq(adminAccess.email, input.email))
-      .limit(1);
-    if (administrator) {
-      throw new ClientAccessValidationError(
-        "Une adresse administrateur ne peut pas être approuvée comme cliente."
-      );
-    }
-
-    const [existing] = await tx
-      .select({ id: coachingClients.id })
-      .from(coachingClients)
-      .where(eq(coachingClients.email, input.email))
-      .limit(1);
-    if (existing) {
-      throw new ClientAccessConflictError(
-        "Cette adresse courriel a déjà une approbation client."
-      );
-    }
-
     await assertAssignableCourses(tx, input.courseIds);
-
     const id = nanoid(21);
     const now = new Date();
     await tx.insert(coachingClients).values({
@@ -541,49 +555,54 @@ export async function approveClient(
       name: input.name,
       status: "active",
       revision: 1,
+      codeVersion: 0,
       createdBy,
       createdAt: now,
       updatedAt: now,
     });
     if (input.courseIds.length > 0) {
-      await tx
-        .insert(clientCourseAccess)
-        .values(
-          input.courseIds.map(courseId => ({
-            clientId: id,
-            courseId,
-            createdAt: now,
-          }))
-        );
+      await tx.insert(clientCourseAccess).values(
+        input.courseIds.map(courseId => ({
+          clientId: id,
+          courseId,
+          createdAt: now,
+        }))
+      );
     }
     return id;
   });
 }
 
-/** Replaces explicit assignments and updates the client name with optimistic revision control. */
+/** Replaces assignments and contact/name with optimistic revision control. */
 export async function updateClient(rawInput: UpdateClientInput): Promise<void> {
   const input = normalizeUpdateInput(rawInput);
   const db = await requireDb();
 
   await db.transaction(async tx => {
     await assertAssignableCourses(tx, input.courseIds);
+    const changes: {
+      name: string;
+      revision: SQL;
+      updatedAt: Date;
+      email?: string | null;
+    } = {
+      name: input.name,
+      revision: sql`${coachingClients.revision} + 1`,
+      updatedAt: new Date(),
+    };
+    if (Object.prototype.hasOwnProperty.call(input, "email"))
+      changes.email = input.email ?? null;
     const result = await tx
       .update(coachingClients)
-      .set({
-        name: input.name,
-        revision: sql`${coachingClients.revision} + 1`,
-        updatedAt: new Date(),
-      })
+      .set(changes)
       .where(
         and(
           eq(coachingClients.id, input.id),
           eq(coachingClients.revision, input.revision)
         )
       );
-    if (affectedRows(result) === 0) {
+    if (affectedRows(result) === 0)
       await assertClientRevisionState(tx, input.id);
-      return;
-    }
 
     await tx
       .delete(clientCourseAccess)
@@ -601,7 +620,11 @@ export async function updateClient(rawInput: UpdateClientInput): Promise<void> {
   });
 }
 
-/** Changes authorization status without removing assignments, so reactivation restores them. */
+/**
+ * Changes client authorization without removing assignments. Revoking advances
+ * codeVersion and revokes sessions inside the same transaction, so later
+ * reactivation can never revive an older opaque session.
+ */
 export async function setClientStatus(
   rawInput: SetClientStatusInput
 ): Promise<void> {
@@ -620,22 +643,32 @@ export async function setClientStatus(
   }
 
   const db = await requireDb();
+  const id = rawInput.id.trim();
   await db.transaction(async tx => {
+    const now = new Date();
     const result = await tx
       .update(coachingClients)
-      .set({
-        status: rawInput.status,
-        revision: sql`${coachingClients.revision} + 1`,
-        updatedAt: new Date(),
-      })
+      .set(
+        rawInput.status === "revoked"
+          ? {
+              status: rawInput.status,
+              codeVersion: sql`${coachingClients.codeVersion} + 1`,
+              revision: sql`${coachingClients.revision} + 1`,
+              updatedAt: now,
+            }
+          : {
+              status: rawInput.status,
+              revision: sql`${coachingClients.revision} + 1`,
+              updatedAt: now,
+            }
+      )
       .where(
         and(
-          eq(coachingClients.id, rawInput.id.trim()),
+          eq(coachingClients.id, id),
           eq(coachingClients.revision, rawInput.revision)
         )
       );
-    if (affectedRows(result) === 0) {
-      await assertClientRevisionState(tx, rawInput.id.trim());
-    }
+    if (affectedRows(result) === 0) await assertClientRevisionState(tx, id);
+    if (rawInput.status === "revoked") await revokeClientSessions(tx, id, now);
   });
 }

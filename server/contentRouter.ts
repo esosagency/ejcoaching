@@ -168,23 +168,34 @@ async function verifyUploadedObject(upload: {
 export const contentRouter = router({
   catalog: protectedProcedure
     .input(
-      z.object({ accountId: z.number().int().positive() }).strict().optional()
+      z
+        .object({
+          accountId: z.number().int().positive().optional(),
+          accountKey: z.string().min(1).max(128).optional(),
+        })
+        .strict()
+        .optional()
     )
     .query(async ({ ctx, input }) => {
-      if (input && input.accountId !== ctx.user.id)
+      const access = await getAccessForUser(ctx.user, ctx.client);
+      if (
+        (input?.accountId !== undefined &&
+          input.accountId !== access.user?.id) ||
+        (input?.accountKey !== undefined &&
+          input.accountKey !== access.user?.accountKey)
+      )
         throw new TRPCError({
           code: "FORBIDDEN",
           message:
             "Ton compte a changé. Réessaie après avoir actualisé ta connexion.",
         });
-      const access = await getAccessForUser(ctx.user);
       if (!access.allowed)
         throw new TRPCError({
           code: "FORBIDDEN",
           message:
             "L’espace d’apprentissage est réservé aux clients approuvés.",
         });
-      const ids = await getAssignedCourseIds(ctx.user);
+      const ids = await getAssignedCourseIds(ctx.user, ctx.client);
       return (await executeContent(() => listAccessibleCourses(ids))).map(
         protectCourseMedia
       );

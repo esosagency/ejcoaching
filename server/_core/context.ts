@@ -1,28 +1,26 @@
 import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
 import type { User } from "../../drizzle/schema";
-import { sdk } from "./sdk";
+import type { CodeClientIdentity } from "../../shared/codeAccess";
+import { authenticateApplicationRequest } from "../applicationAuth";
 
 export type TrpcContext = {
   req: CreateExpressContextOptions["req"];
   res: CreateExpressContextOptions["res"];
   user: User | null;
+  /** Optional so existing isolated caller fixtures remain source-compatible. */
+  client?: CodeClientIdentity | null;
+  hasClientCookie?: boolean;
 };
 
 export async function createContext(
   opts: CreateExpressContextOptions
 ): Promise<TrpcContext> {
-  let user: User | null = null;
-
-  try {
-    user = await sdk.authenticateRequest(opts.req);
-  } catch (error) {
-    // Authentication is optional for public procedures.
-    user = null;
-  }
-
+  const authentication = await authenticateApplicationRequest(opts.req);
   return {
     req: opts.req,
     res: opts.res,
-    user,
+    user: authentication.user,
+    client: authentication.client,
+    hasClientCookie: authentication.hasClientCookie,
   };
 }

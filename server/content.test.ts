@@ -129,7 +129,10 @@ describe("contentRouter catalogue et révisions", () => {
       updatedAt: now.toISOString(),
     };
     contentDbMock.listAccessibleCourses.mockResolvedValue([publishedCourse]);
-    accessMock.getAccessForUser.mockResolvedValue({ allowed: true });
+    accessMock.getAccessForUser.mockResolvedValue({
+      allowed: true,
+      user: { id: 12, accountKey: "12", name: "Compte test", email: "" },
+    });
     accessMock.getAssignedCourseIds.mockResolvedValue(["nutrition"]);
 
     const result = await contentRouter
@@ -160,6 +163,59 @@ describe("contentRouter catalogue et révisions", () => {
         .catalog({ accountId: 11 })
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(contentDbMock.listAccessibleCourses).not.toHaveBeenCalled();
+  });
+
+  it("isole le catalogue d’un client par code et bloque une clé d’un autre compte", async () => {
+    const client = {
+      id: "client-unit",
+      name: "Client unité",
+      email: null,
+      codeVersion: 1,
+    };
+    const ctx = { ...context(null), client, hasClientCookie: true };
+    accessMock.getAccessForUser.mockResolvedValue({
+      allowed: true,
+      user: { accountKey: "client_client-unit", name: client.name, email: "" },
+      clientId: client.id,
+    });
+    accessMock.getAssignedCourseIds.mockResolvedValue(["nutrition"]);
+    contentDbMock.listAccessibleCourses.mockResolvedValue([]);
+    const caller = contentRouter.createCaller(ctx);
+    await expect(
+      caller.catalog({ accountKey: "client_client-unit" })
+    ).resolves.toEqual([]);
+    expect(accessMock.getAssignedCourseIds).toHaveBeenCalledWith(null, client);
+    contentDbMock.listAccessibleCourses.mockClear();
+    await expect(
+      caller.catalog({ accountKey: "client_another" })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(contentDbMock.listAccessibleCourses).not.toHaveBeenCalled();
+  });
+
+  it("ne prête pas les droits OAuth admin à un mode client actif ou invalide", async () => {
+    const active = {
+      ...context(user("admin")),
+      client: {
+        id: "client-unit",
+        name: "Client unité",
+        email: null,
+        codeVersion: 1,
+      },
+      hasClientCookie: true,
+    };
+    await expect(
+      contentRouter.createCaller(active).adminList()
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    const expired = {
+      ...context(user("admin")),
+      client: null,
+      hasClientCookie: true,
+    };
+    await expect(
+      contentRouter.createCaller(expired).createCourse(validCourse)
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(contentDbMock.listAdminCourses).not.toHaveBeenCalled();
+    expect(contentDbMock.createCourse).not.toHaveBeenCalled();
   });
 
   it("retourne CONFLICT lorsqu’une mise à jour utilise une révision dépassée", async () => {

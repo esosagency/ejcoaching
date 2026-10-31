@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { and, eq, isNull } from "drizzle-orm";
 import { contentLessons, contentUploads } from "../drizzle/schema";
-import { sdk } from "./_core/sdk";
+import { authenticateApplicationRequest } from "./applicationAuth";
 import { getDb } from "./db";
 import { canAccessCourse } from "./clientAccess";
 import { getPrivateMedia, readPrivateMediaRange } from "./privateMediaStorage";
@@ -74,6 +74,7 @@ async function sendProtected(
     "Cache-Control": "private, no-store",
     Vary: "Cookie, Authorization",
     "X-Content-Type-Options": "nosniff",
+    "Cross-Origin-Resource-Policy": "same-origin",
     "Accept-Ranges": "bytes",
   });
   if (!range) {
@@ -136,8 +137,9 @@ export function registerCourseMediaRoutes(app: Express) {
   // Owner-only preview of an encrypted upload, including a PDF not yet saved to a lesson.
   app.get("/api/admin/private-file", async (req, res) => {
     try {
-      const user = await sdk.authenticateRequest(req);
-      if (user.role !== "admin") {
+      const { user, client, hasClientCookie } =
+        await authenticateApplicationRequest(req);
+      if (!user || user.role !== "admin" || client || hasClientCookie) {
         res.status(403).json({ error: "Accès administrateur requis." });
         return;
       }
@@ -181,11 +183,11 @@ export function registerCourseMediaRoutes(app: Express) {
 async function handleCourseMedia(req: Request, res: Response) {
   res.set("Cache-Control", "private, no-store");
   try {
-    const user = await sdk.authenticateRequest(req);
+    const { user, client } = await authenticateApplicationRequest(req);
     const courseId = String(req.params.courseId);
     const lessonId = String(req.params.lessonId);
     const kind = String(req.params.kind);
-    if (!(await canAccessCourse(user, courseId))) {
+    if (!(await canAccessCourse(user, courseId, client))) {
       res
         .status(403)
         .json({ error: "Ton accès à ce cours n’est pas autorisé." });
@@ -240,12 +242,9 @@ async function handleCourseMedia(req: Request, res: Response) {
     await sendProtected(req, res, url.slice("/manus-storage/".length), type);
   } catch {
     if (!res.headersSent)
-      res
-        .status(403)
-        .json({
-          error:
-            "Connecte-toi avec un compte client autorisé pour accéder à ce fichier.",
-        });
+      res.status(403).json({
+        error: "Entre ton code personnel pour accéder à ce fichier protégé.",
+      });
     else res.destroy();
   }
 }

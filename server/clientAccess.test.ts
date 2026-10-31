@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { User } from "../drizzle/schema";
+import type { CodeClientIdentity } from "../shared/codeAccess";
 
 const dbMock = vi.hoisted(() => ({ getDb: vi.fn() }));
 vi.mock("./db", () => dbMock);
@@ -11,6 +12,12 @@ import {
 } from "./clientAccess";
 
 const now = new Date("2026-10-31T00:00:00.000Z");
+const codeClient: CodeClientIdentity = {
+  id: "client-a",
+  name: "Client exemple",
+  email: null,
+  codeVersion: 3,
+};
 
 function user(
   role: "user" | "admin",
@@ -64,40 +71,63 @@ describe("getAccessForUser", () => {
     });
     await expect(
       getAccessForUser({ ...user("user"), id: 0 })
-    ).resolves.toMatchObject({ reason: "signed_out", allowed: false });
+    ).resolves.toMatchObject({
+      reason: "signed_out",
+      allowed: false,
+    });
     expect(dbMock.getDb).not.toHaveBeenCalled();
   });
 
-  it("autorise un administrateur immédiatement, sans approbation cliente", async () => {
+  it("autorise un administrateur OAuth réel avec sa clé historique", async () => {
     await expect(
       getAccessForUser(user("admin", " Admin@Example.com "))
     ).resolves.toEqual({
       authenticated: true,
       allowed: true,
       isAdmin: true,
-      user: { id: 11, name: "Compte admin", email: "admin@example.com" },
+      user: {
+        id: 11,
+        accountKey: "11",
+        name: "Compte admin",
+        email: "admin@example.com",
+      },
     });
     expect(dbMock.getDb).not.toHaveBeenCalled();
   });
 
-  it("lit le statut courant d’une approbation normalisée et distingue active et révoquée", async () => {
-    dbMock.getDb.mockResolvedValue(
-      readOnlyDb([{ id: "client-a", status: "active" }])
-    );
+  it("ne donne jamais les droits client à un OAuth non-admin par son courriel", async () => {
     await expect(
-      getAccessForUser(user("user", " Client@Example.com "))
-    ).resolves.toEqual({
+      getAccessForUser(user("user", "client@example.com"))
+    ).resolves.toMatchObject({
+      authenticated: true,
+      allowed: false,
+      isAdmin: false,
+      reason: "unapproved",
+      user: { accountKey: "12" },
+    });
+    expect(dbMock.getDb).not.toHaveBeenCalled();
+  });
+
+  it("revalide le statut et la version du principal code à chaque accès", async () => {
+    dbMock.getDb.mockResolvedValue(
+      readOnlyDb([
+        { ...codeClient, name: "Nom actualisé", email: "contact@example.com" },
+      ])
+    );
+    await expect(getAccessForUser(null, codeClient)).resolves.toEqual({
       authenticated: true,
       allowed: true,
       isAdmin: false,
-      user: { id: 12, name: "Compte user", email: "client@example.com" },
+      user: {
+        accountKey: "client_client-a",
+        name: "Nom actualisé",
+        email: "contact@example.com",
+      },
       clientId: "client-a",
     });
 
-    dbMock.getDb.mockResolvedValue(
-      readOnlyDb([{ id: "client-a", status: "revoked" }])
-    );
-    await expect(getAccessForUser(user("user"))).resolves.toMatchObject({
+    dbMock.getDb.mockResolvedValue(readOnlyDb([]));
+    await expect(getAccessForUser(null, codeClient)).resolves.toMatchObject({
       authenticated: true,
       allowed: false,
       isAdmin: false,
@@ -105,63 +135,43 @@ describe("getAccessForUser", () => {
       clientId: "client-a",
     });
   });
-
-  it("renvoie non approuvé pour une adresse OAuth absente ou sans approbation", async () => {
-    await expect(getAccessForUser(user("user", null))).resolves.toMatchObject({
-      authenticated: true,
-      allowed: false,
-      reason: "unapproved",
-    });
-    expect(dbMock.getDb).not.toHaveBeenCalled();
-
-    dbMock.getDb.mockResolvedValue(readOnlyDb([]));
-    await expect(getAccessForUser(user("user"))).resolves.toMatchObject({
-      authenticated: true,
-      allowed: false,
-      reason: "unapproved",
-    });
-  });
 });
 
 describe("course permission checks", () => {
-  it("retourne seulement les cours publiés actifs pour un administrateur", async () => {
+  it("retourne les cours publiés actifs pour un administrateur", async () => {
     dbMock.getDb.mockResolvedValue(
       readOnlyDb([{ id: "nutrition" }, { id: "training" }])
     );
-
     await expect(getAssignedCourseIds(user("admin"))).resolves.toEqual([
       "nutrition",
       "training",
     ]);
   });
 
-  it("exige une approbation active et une affectation pour les cours clients", async () => {
+  it("exige un principal code actuel et une affectation pour les cours clients", async () => {
     dbMock.getDb.mockResolvedValue(readOnlyDb([{ id: "nutrition" }]));
-    await expect(getAssignedCourseIds(user("user"))).resolves.toEqual([
+    await expect(getAssignedCourseIds(null, codeClient)).resolves.toEqual([
       "nutrition",
     ]);
 
     dbMock.getDb.mockResolvedValue(readOnlyDb([{ id: "nutrition" }]));
-    await expect(canAccessCourse(user("user"), " nutrition ")).resolves.toBe(
-      true
-    );
+    await expect(
+      canAccessCourse(null, " nutrition ", codeClient)
+    ).resolves.toBe(true);
 
     dbMock.getDb.mockResolvedValue(readOnlyDb([]));
-    await expect(canAccessCourse(user("user"), "nutrition")).resolves.toBe(
+    await expect(canAccessCourse(null, "nutrition", codeClient)).resolves.toBe(
       false
     );
   });
 
-  it("permet à l’administrateur un brouillon actif, mais refuse les entrées sans identité ou email", async () => {
-    dbMock.getDb.mockResolvedValue(readOnlyDb([{ id: "future-course" }]));
-    await expect(canAccessCourse(user("admin"), "future-course")).resolves.toBe(
-      true
-    );
-
+  it("refuse OAuth non-admin, identité absente et entrée de cours invalide sans requête DB", async () => {
+    await expect(getAssignedCourseIds(user("user"))).resolves.toEqual([]);
     await expect(canAccessCourse(null, "future-course")).resolves.toBe(false);
-    await expect(
-      canAccessCourse(user("user", null), "future-course")
-    ).resolves.toBe(false);
+    await expect(canAccessCourse(user("user"), "future-course")).resolves.toBe(
+      false
+    );
     await expect(getAssignedCourseIds(user("user", null))).resolves.toEqual([]);
+    expect(dbMock.getDb).not.toHaveBeenCalled();
   });
 });

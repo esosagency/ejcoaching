@@ -1,10 +1,11 @@
-/* Client access management: deliberately scoped so existing course administration stays untouched. */
+/* Client management stays scoped so existing course administration remains untouched. */
 .admin-clients-page .btn,
 .admin-clients-page .admin-filter-select,
 .admin-clients-page .admin-search input,
 .client-form-modal input,
 .client-form-modal button,
-.client-confirm-modal button {
+.client-confirm-modal button,
+.client-secret-modal button {
   min-height: 44px;
 }
 .client-heading {
@@ -96,9 +97,16 @@
   flex: 0 0 auto;
   color: #b5a0f8;
 }
-.client-status {
-  display: inline-flex;
+.client-card-badges {
+  display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.client-status,
+.client-code-state {
+  display: inline-flex;
   align-items: center;
   gap: 5px;
   border: 1px solid #40384f;
@@ -109,15 +117,22 @@
   letter-spacing: 0.075em;
   text-transform: uppercase;
 }
-.client-status.is-active {
+.client-status.is-active,
+.client-code-state.is-enabled {
   border-color: rgba(101, 187, 145, 0.38);
   background: rgba(55, 133, 95, 0.13);
   color: #a7e0bd;
 }
-.client-status.is-revoked {
+.client-status.is-revoked,
+.client-code-state.is-disabled {
   border-color: rgba(241, 121, 136, 0.34);
   background: rgba(190, 64, 83, 0.1);
   color: #f0adb6;
+}
+.client-code-state.is-none {
+  border-color: rgba(145, 149, 170, 0.3);
+  background: rgba(109, 114, 140, 0.09);
+  color: #b4b6c8;
 }
 .client-card-details {
   display: flex;
@@ -149,12 +164,18 @@
 .client-card-actions .btn {
   min-width: 118px;
 }
+.client-code-button {
+  border-color: rgba(158, 126, 237, 0.46);
+  color: #d1c2ff;
+}
+.client-disable-code-button,
 .client-revoke-button,
 .client-danger-action {
   border: 1px solid rgba(235, 135, 149, 0.42);
   background: rgba(156, 54, 71, 0.12);
   color: #f3adb7;
 }
+.client-disable-code-button:hover,
 .client-revoke-button:hover,
 .client-danger-action:hover {
   background: rgba(188, 68, 84, 0.24);
@@ -163,7 +184,8 @@
   width: 735px;
 }
 .client-form-modal .admin-modal-header,
-.client-confirm-modal .admin-modal-header {
+.client-confirm-modal .admin-modal-header,
+.client-secret-modal .admin-modal-header {
   margin-bottom: 20px;
 }
 .client-icon-button {
@@ -186,6 +208,12 @@
 .client-readonly-email svg {
   flex: 0 0 auto;
   color: #a68cea;
+}
+.client-form-modal .admin-field em {
+  color: #9296aa;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 500;
 }
 .client-course-legend {
   color: #c9cada;
@@ -302,10 +330,12 @@
   font-size: 11px;
   font-weight: 700;
 }
-.client-confirm-modal {
+.client-confirm-modal,
+.client-secret-modal {
   width: 550px;
 }
-.client-confirm-note {
+.client-confirm-note,
+.client-secret-warning {
   margin: 0;
   border: 1px solid rgba(187, 161, 253, 0.28);
   border-radius: 10px;
@@ -315,7 +345,29 @@
   font-size: 11px;
   line-height: 1.55;
 }
-@media (max-width: 840px) {
+.client-secret-code {
+  display: block;
+  overflow-wrap: anywhere;
+  margin: 3px 0 12px;
+  border: 1px solid rgba(174, 144, 255, 0.45);
+  border-radius: 12px;
+  background: #0b0d1c;
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.04);
+  color: #e5dbff;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: clamp(18px, 4vw, 24px);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 18px;
+  text-align: center;
+  user-select: all;
+}
+.client-secret-warning {
+  border-color: rgba(241, 193, 105, 0.32);
+  background: rgba(190, 136, 33, 0.1);
+  color: #ead29a;
+}
+@media (max-width: 1000px) {
   .client-card {
     grid-template-columns: 44px minmax(0, 1fr);
   }
@@ -323,6 +375,8 @@
     grid-column: 2;
     justify-content: flex-start;
   }
+}
+@media (max-width: 840px) {
   .client-course-options {
     grid-template-columns: 1fr;
   }
@@ -345,7 +399,7 @@
     width: 100%;
   }
 }
-@media (max-width: 480px) {
+@media (max-width: 540px) {
   .client-card {
     grid-template-columns: 40px minmax(0, 1fr);
     gap: 11px;
@@ -361,8 +415,8 @@
     flex-direction: column;
     gap: 8px;
   }
-  .client-status {
-    align-self: flex-start;
+  .client-card-badges {
+    justify-content: flex-start;
   }
   .client-card-actions {
     grid-column: 1 / -1;
@@ -379,9 +433,14 @@
     align-items: stretch;
     flex-direction: column;
   }
+  .client-secret-code {
+    font-size: 17px;
+    padding: 15px 10px;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .client-card {
+  .client-card,
+  .client-course-choice {
     transition: none;
   }
 }

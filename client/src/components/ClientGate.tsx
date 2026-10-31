@@ -1,209 +1,235 @@
-import type { ReactNode } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { useState } from "react";
 import {
   AlertCircle,
-  CircleHelp,
-  LockKeyhole,
-  LogOut,
-  RefreshCw,
-  ShieldCheck,
-  UserRoundX,
+  ArrowLeft,
+  ArrowRight,
+  Crown,
+  KeyRound,
+  LoaderCircle,
 } from "lucide-react";
 import { startLogin } from "@/const";
-import { useAuth } from "@/_core/hooks/useAuth";
-import { useAccess } from "@/contexts/AccessContext";
+import { trpc } from "@/lib/trpc";
 import "./ClientGate.css";
 
 type ClientGateProps = {
-  children: ReactNode;
+  children?: ReactNode;
 };
 
-function displayActionError(error: unknown): string {
-  if (error instanceof Error && error.message) return error.message;
-  return "Cette action n’a pas pu être complétée. Réessaie dans un instant.";
+function loginErrorMessage(error: unknown): string {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    return "Tu sembles hors ligne. Vérifie ta connexion Internet et réessaie.";
+  }
+
+  const data =
+    error && typeof error === "object" && "data" in error
+      ? (error as { data?: { code?: string; httpStatus?: number } }).data
+      : undefined;
+  if (data?.code === "TOO_MANY_REQUESTS" || data?.httpStatus === 429) {
+    return "Trop de tentatives ont été faites. Attends un moment avant de réessayer.";
+  }
+
+  return "Le code n’a pas été reconnu. Vérifie-le puis réessaie.";
 }
 
 export default function ClientGate({ children }: ClientGateProps) {
-  const { access, error, loading, retry } = useAccess();
-  const { logout, loading: authLoading } = useAuth();
-  const [actionError, setActionError] = useState<string | null>(null);
+  const utils = trpc.useUtils();
+  const loginMutation = trpc.clients.login.useMutation();
+  const leaveClientMutation = trpc.clients.logout.useMutation();
+  const [stage, setStage] = useState<"welcome" | "code">("welcome");
+  const [code, setCode] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [adminError, setAdminError] = useState<string | null>(null);
 
-  const signIn = () => {
-    setActionError(null);
+  if (children) return <>{children}</>;
+
+  const resetIdentityCaches = async () => {
+    utils.auth.me.setData(undefined, null);
+    await Promise.all([
+      utils.auth.me.reset(),
+      utils.clients.me.reset(),
+      utils.clients.adminList.reset(),
+      utils.content.catalog.reset(),
+      utils.content.adminList.reset(),
+      utils.content.adminGet.reset(),
+      utils.video.get.reset(),
+    ]);
+  };
+
+  const enterCodeStep = () => {
+    setError(null);
+    setAdminError(null);
+    setStage("code");
+  };
+
+  const returnToWelcome = () => {
+    if (loginMutation.isPending) return;
+    setCode("");
+    setError(null);
+    setStage("welcome");
+  };
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const submittedCode = code.trim();
+    if (!submittedCode) {
+      setError("Entre ton code personnel pour continuer.");
+      return;
+    }
+
+    setError(null);
+    setAdminError(null);
     try {
-      // startLogin has to be called from this click handler: it creates the
-      // one-time Manus OAuth state cookie immediately before navigation.
+      await loginMutation.mutateAsync({ code: submittedCode });
+      // The code is never retained after the request, including during reload.
+      setCode("");
+      await resetIdentityCaches();
+      window.location.assign("/");
+    } catch (caught) {
+      setError(loginErrorMessage(caught));
+    }
+  };
+
+  const openAdminAccess = async () => {
+    setAdminError(null);
+    setError(null);
+    try {
+      // A client cookie deliberately wins over Preview OAuth. Clear only the
+      // code-client mode before entering the existing administrator OAuth flow.
+      await leaveClientMutation.mutateAsync(undefined);
+      await resetIdentityCaches();
       startLogin();
-    } catch (caught) {
-      setActionError(displayActionError(caught));
+    } catch {
+      setAdminError(
+        "Impossible de préparer l’accès administrateur. Réessaie dans un instant."
+      );
     }
   };
 
-  const signOut = async () => {
-    setActionError(null);
-    try {
-      await logout();
-    } catch (caught) {
-      setActionError(displayActionError(caught));
-    }
-  };
-
-  const useAnotherAccount = async () => {
-    setActionError(null);
-    try {
-      await logout();
-      startLogin();
-    } catch (caught) {
-      setActionError(displayActionError(caught));
-    }
-  };
-
-  if (loading && !access?.allowed) {
-    return (
-      <section className="client-gate panel" aria-live="polite">
-        <span className="client-gate-spinner" aria-hidden="true" />
-        <p className="eyebrow">
-          <span className="eyebrow-line" /> ESPACE MEMBRE
-        </p>
-        <h1>Vérification de ton accès</h1>
-        <p className="muted">Un instant, on confirme l’accès à ton espace.</p>
-      </section>
-    );
-  }
-
-  if (error) {
-    return (
-      <section className="client-gate panel" role="alert">
-        <span className="client-gate-icon is-error">
-          <AlertCircle size={23} />
-        </span>
-        <p className="eyebrow">
-          <span className="eyebrow-line" /> ESPACE MEMBRE
-        </p>
-        <h1>Impossible de vérifier ton accès</h1>
-        <p className="muted">
-          Ta connexion n’a pas été modifiée. Réessaie dans un instant.
-        </p>
-        <button type="button" className="btn secondary" onClick={retry}>
-          <RefreshCw size={17} /> Réessayer
-        </button>
-      </section>
-    );
-  }
-
-  if (access?.allowed) return <>{children}</>;
-
-  const isSignedOut =
-    !access || !access.authenticated || access.reason === "signed_out";
-  const isRevoked = access?.reason === "revoked";
-  const busy = authLoading;
+  const busy = loginMutation.isPending || leaveClientMutation.isPending;
 
   return (
-    <section
-      className="client-gate panel"
-      role={isSignedOut ? undefined : "alert"}
-    >
-      <span className={`client-gate-icon ${isRevoked ? "is-error" : ""}`}>
-        {isSignedOut ? (
-          <LockKeyhole size={23} />
-        ) : isRevoked ? (
-          <UserRoundX size={23} />
+    <main className="client-gate" aria-labelledby="client-gate-title">
+      <div
+        className="client-gate-halo client-gate-halo-one"
+        aria-hidden="true"
+      />
+      <div
+        className="client-gate-halo client-gate-halo-two"
+        aria-hidden="true"
+      />
+      <section className={`client-gate-content is-${stage}`}>
+        {stage === "welcome" ? (
+          <div className="client-gate-welcome">
+            <div className="client-gate-monogram" aria-label="EJ Coaching">
+              <span>E</span>
+              <span>J</span>
+            </div>
+            <h1 id="client-gate-title">Bienvenue chez</h1>
+            <p className="client-gate-brand-name">EJ Coaching</p>
+            <p className="client-gate-subtitle">
+              Ton espace privé pour apprendre et progresser.
+            </p>
+            <button
+              type="button"
+              className="client-gate-entry"
+              onClick={enterCodeStep}
+              disabled={busy}
+            >
+              <Crown size={15} aria-hidden="true" />
+              Entrer dans mon espace
+              <ArrowRight size={15} aria-hidden="true" />
+            </button>
+          </div>
         ) : (
-          <CircleHelp size={23} />
+          <div className="client-gate-code-step">
+            <button
+              type="button"
+              className="client-gate-back"
+              onClick={returnToWelcome}
+              disabled={loginMutation.isPending}
+            >
+              <ArrowLeft size={14} aria-hidden="true" /> Retour
+            </button>
+            <div className="client-gate-key-icon" aria-hidden="true">
+              <KeyRound size={27} strokeWidth={1.8} />
+            </div>
+            <h1 id="client-gate-title">Entre ton code personnel</h1>
+            <p className="client-gate-subtitle">
+              Ton code t’a été remis par EJ Coaching.
+            </p>
+            <form className="client-gate-form" onSubmit={submit}>
+              <label className="sr-only" htmlFor="client-access-code">
+                Ton code personnel
+              </label>
+              <input
+                id="client-access-code"
+                type="text"
+                inputMode="text"
+                autoComplete="one-time-code"
+                autoCapitalize="characters"
+                spellCheck={false}
+                value={code}
+                onChange={event => setCode(event.target.value.toUpperCase())}
+                placeholder="EJ-XXXX-XXXX-XXXX"
+                aria-describedby={error ? "client-code-error" : undefined}
+                aria-invalid={Boolean(error)}
+                disabled={busy}
+                autoFocus
+              />
+              {error && (
+                <p
+                  id="client-code-error"
+                  className="client-gate-error"
+                  role="alert"
+                >
+                  <AlertCircle size={16} aria-hidden="true" /> {error}
+                </p>
+              )}
+              <button
+                type="submit"
+                className="client-gate-entry"
+                disabled={busy}
+              >
+                {loginMutation.isPending ? (
+                  <LoaderCircle
+                    size={17}
+                    className="client-gate-spin"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <KeyRound size={16} aria-hidden="true" />
+                )}
+                {loginMutation.isPending
+                  ? "Vérification…"
+                  : "Entrer dans mon espace"}
+                {!loginMutation.isPending && (
+                  <ArrowRight size={15} aria-hidden="true" />
+                )}
+              </button>
+            </form>
+          </div>
         )}
-      </span>
-      <p className="eyebrow">
-        <span className="eyebrow-line" /> ESPACE MEMBRE
-      </p>
 
-      {isSignedOut ? (
-        <>
-          <h1>Connecte-toi à ton espace</h1>
-          <p className="muted">
-            Utilise ton compte Manus habituel avec l’adresse courriel approuvée
-            par EJ Coaching.
-          </p>
-          <button type="button" className="btn primary" onClick={signIn}>
-            <ShieldCheck size={17} /> Se connecter
+        <div className="client-gate-admin">
+          <span>Tu gères EJ Coaching?</span>
+          <button
+            type="button"
+            onClick={() => void openAdminAccess()}
+            disabled={busy}
+          >
+            Accès administrateur <ArrowRight size={13} aria-hidden="true" />
           </button>
-        </>
-      ) : isRevoked ? (
-        <>
-          <h1>Ton accès est actuellement suspendu</h1>
-          <p className="muted">
-            Cette adresse courriel n’a plus accès aux cours. Communique avec EJ
-            Coaching si tu crois qu’il s’agit d’une erreur.
+        </div>
+        {adminError && (
+          <p className="client-gate-admin-error" role="alert">
+            <AlertCircle size={15} aria-hidden="true" /> {adminError}
           </p>
-          <GateActions
-            busy={busy}
-            onRetry={retry}
-            onSignOut={() => void signOut()}
-            onOtherAccount={() => void useAnotherAccount()}
-          />
-        </>
-      ) : (
-        <>
-          <h1>Ton accès n’est pas encore approuvé</h1>
-          <p className="muted">
-            EJ Coaching doit approuver l’adresse courriel de ton compte Manus
-            avant de te donner accès. Aucune invitation par courriel n’est
-            envoyée automatiquement.
-          </p>
-          <GateActions
-            busy={busy}
-            onRetry={retry}
-            onSignOut={() => void signOut()}
-            onOtherAccount={() => void useAnotherAccount()}
-          />
-        </>
-      )}
-
-      {actionError && (
-        <p className="client-gate-error" role="alert">
-          <AlertCircle size={16} /> {actionError}
-        </p>
-      )}
-    </section>
-  );
-}
-
-function GateActions({
-  busy,
-  onRetry,
-  onSignOut,
-  onOtherAccount,
-}: {
-  busy: boolean;
-  onRetry: () => void;
-  onSignOut: () => void;
-  onOtherAccount: () => void;
-}) {
-  return (
-    <div className="client-gate-actions">
-      <button
-        type="button"
-        className="btn primary"
-        onClick={onOtherAccount}
-        disabled={busy}
-      >
-        <ShieldCheck size={17} /> Utiliser un autre compte
-      </button>
-      <button
-        type="button"
-        className="btn secondary"
-        onClick={onRetry}
-        disabled={busy}
-      >
-        <RefreshCw size={17} /> Réessayer
-      </button>
-      <button
-        type="button"
-        className="client-gate-logout"
-        onClick={onSignOut}
-        disabled={busy}
-      >
-        <LogOut size={16} /> Se déconnecter
-      </button>
-    </div>
+        )}
+      </section>
+      <p className="client-gate-footer">
+        EJ Coaching © {new Date().getFullYear()}
+      </p>
+    </main>
   );
 }

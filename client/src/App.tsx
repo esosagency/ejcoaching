@@ -13,7 +13,6 @@ import {
 } from "./contexts/CatalogContext";
 import { LearningProvider } from "./contexts/LearningContext";
 import { trpc } from "./lib/trpc";
-import { startLogin } from "./const";
 import { courseMediaUrl } from "@shared/privateMedia";
 import Home from "./pages/Home";
 import Library from "./pages/Library";
@@ -75,6 +74,7 @@ function AdminPreviewContent({ lesson = false }: { lesson?: boolean }) {
     </CatalogProvider>
   );
 }
+
 function AdminPreview({ lesson = false }: { lesson?: boolean }) {
   return (
     <AdminGate>
@@ -82,6 +82,7 @@ function AdminPreview({ lesson = false }: { lesson?: boolean }) {
     </AdminGate>
   );
 }
+
 function AssignedContent({ children }: { children: ReactNode }) {
   const { courses } = useCatalog();
   const { access } = useAccess();
@@ -91,53 +92,35 @@ function AssignedContent({ children }: { children: ReactNode }) {
         <LockKeyhole size={28} />
         <h1>Aucun cours attribué pour le moment</h1>
         <p>
-          Ton compte est approuvé. EJ Coaching doit maintenant sélectionner les
+          Ton accès est actif. EJ Coaching doit maintenant sélectionner les
           cours de ton parcours.
         </p>
       </section>
     );
   return <>{children}</>;
 }
+
 function ClientPage({ children }: { children: ReactNode }) {
   return (
-    <ClientGate>
-      <CatalogBoundary>
-        <AssignedContent>{children}</AssignedContent>
-      </CatalogBoundary>
-    </ClientGate>
+    <CatalogBoundary>
+      <AssignedContent>{children}</AssignedContent>
+    </CatalogBoundary>
   );
 }
-function DeniedAccess() {
-  return (
-    <section className="client-gate panel" role="alert">
-      <span className="client-gate-icon">
-        <LockKeyhole size={23} />
-      </span>
-      <p className="eyebrow">ESPACE MEMBRE</p>
-      <h1>Ce compte n’a pas accès à EJ Coaching</h1>
-      <p className="muted">
-        Utilise l’adresse courriel approuvée par ton coach. Si ton accès est
-        suspendu ou pas encore approuvé, communique avec EJ Coaching.
-      </p>
-      <button className="btn primary" onClick={() => startLogin()}>
-        Réessayer avec mon compte Manus
-      </button>
-    </section>
-  );
-}
+
 function ApplicationRoutes() {
-  const { access, loading, error } = useAccess();
+  const { access, loading } = useAccess();
   const [location] = useLocation();
-  if (error || !access?.allowed)
-    return (
-      <LearningShell>
-        {!loading && !error && location === "/access-denied" ? (
-          <DeniedAccess />
-        ) : (
-          <ClientGate>{null}</ClientGate>
-        )}
-      </LearningShell>
-    );
+
+  // The personal-code screen is intentionally always available, even with an
+  // auto-authenticated Preview administrator. It has no learning shell.
+  if (location === "/login") return <ClientGate />;
+
+  if (!access?.allowed) {
+    if (!loading) return <Redirect to="/login" />;
+    return <ClientGate />;
+  }
+
   return (
     <>
       <div
@@ -148,7 +131,9 @@ function ApplicationRoutes() {
         aria-hidden={loading}
       >
         <CatalogProvider>
-          <LearningProvider key={`account-${access.user?.id}`}>
+          <LearningProvider
+            key={`account-${access.user?.accountKey ?? "none"}`}
+          >
             <LearningShell>
               <Switch>
                 <Route path="/admin" component={AdminCourses} />
@@ -160,11 +145,8 @@ function ApplicationRoutes() {
                 <Route path="/admin/preview/:id">
                   {() => <AdminPreview />}
                 </Route>
-                <Route path="/login">
-                  {() => <Redirect to={access.isAdmin ? "/admin" : "/"} />}
-                </Route>
                 <Route path="/access-denied">
-                  {() => <Redirect to={access.isAdmin ? "/admin" : "/"} />}
+                  <Redirect to="/login" />
                 </Route>
                 <Route path="/">
                   {() => (
@@ -236,6 +218,7 @@ function ApplicationRoutes() {
     </>
   );
 }
+
 export default function App() {
   return (
     <ErrorBoundary>

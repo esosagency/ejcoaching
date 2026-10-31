@@ -124,7 +124,7 @@ export default function Lesson() {
   const [activeTab, setActiveTab] = useState<LessonTab>("overview");
   const { access } = useAccess();
   const notesKey = accountStorageKey(
-    access?.user?.id,
+    access?.user?.accountKey,
     `notes-${lessonId || "unknown"}`
   );
   const legacyNotesKey = `ej-demo-notes-${lessonId || "unknown"}`;

@@ -1,4 +1,4 @@
-import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from '@shared/const';
+import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from "@shared/const";
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
@@ -10,36 +10,40 @@ const t = initTRPC.context<TrpcContext>().create({
 export const router = t.router;
 export const publicProcedure = t.procedure;
 
-const requireUser = t.middleware(async opts => {
+const requirePrincipal = t.middleware(async opts => {
   const { ctx, next } = opts;
-
-  if (!ctx.user) {
+  if (!ctx.user && !ctx.client) {
     throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
   }
-
   return next({
     ctx: {
       ...ctx,
       user: ctx.user,
+      client: ctx.client,
     },
   });
 });
 
-export const protectedProcedure = t.procedure.use(requireUser);
+/** Any authenticated application principal may use protected learning APIs. */
+export const protectedProcedure = t.procedure.use(requirePrincipal);
 
+/** Only the real, current OAuth administrator may access management APIs. */
 export const adminProcedure = t.procedure.use(
   t.middleware(async opts => {
     const { ctx, next } = opts;
-
-    if (!ctx.user || ctx.user.role !== 'admin') {
+    if (
+      ctx.hasClientCookie ||
+      ctx.client ||
+      !ctx.user ||
+      ctx.user.role !== "admin"
+    ) {
       throw new TRPCError({ code: "FORBIDDEN", message: NOT_ADMIN_ERR_MSG });
     }
-
     return next({
       ctx: {
         ...ctx,
         user: ctx.user,
       },
     });
-  }),
+  })
 );

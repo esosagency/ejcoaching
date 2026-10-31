@@ -151,7 +151,7 @@ export default function LearningShell({ children }: { children: ReactNode }) {
         </div>
         <div className="sidebar-bottom">
           {!isAdmin && (
-            <Link className="preview-help admin-entry-link" href="/admin">
+            <Link className="preview-help admin-entry-link" href="/login">
               <LockKeyhole size={13} /> Espace administrateur{" "}
               <ArrowUpRight size={14} />
             </Link>
