@@ -5,6 +5,7 @@ import type {
   LessonInput,
   LessonResource,
 } from "../shared/content";
+import { parseVimeoUrl } from "../shared/vimeo";
 
 const MAX_URL_LENGTH = 2048;
 const MAX_RESOURCE_COUNT = 30;
@@ -112,14 +113,7 @@ export function isRecognizedVideoEmbed(value: string): boolean {
   ) {
     return parts.length === 2 && videoId.test(parts[1]!);
   }
-  if (host === "vimeo.com" || host === "www.vimeo.com") {
-    return parts.length === 1 && /^\d{1,16}$/.test(parts[0]!);
-  }
-  if (host === "player.vimeo.com") {
-    return (
-      parts.length === 2 && parts[0] === "video" && /^\d{1,16}$/.test(parts[1]!)
-    );
-  }
+  if (parseVimeoUrl(value)) return true;
   if (
     host === "fast.wistia.com" ||
     host === "fast.wistia.net" ||

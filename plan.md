@@ -21,3 +21,11 @@ L’administrateur peut créer des cours, modifier titres/descriptions/catégori
 - Pages clients existantes : lectures du catalogue partagé et affichage du média sélectionné sans altérer les liens ni les progrès locaux.
 
 Les nouveaux fichiers utilisent les diagnostics TypeScript du projet. Le serveur passe de `dev:static` à `dev`; le déploiement utilise le Dockerfile existant et `/api/health`. Les autorisations et la persistance sont vérifiées sans créer de faux utilisateurs administrateurs ni modifier les données clients pendant les tests.
+
+## Vimeo hosting and privacy
+
+The creator selected Vimeo hosting. The lesson player, editor and server share validated Vimeo URL handling, including unlisted video privacy hashes, so approved private embed links remain intact. Vimeo access uses the creator’s actual account; no credentials or fabricated videos are introduced. The site remains unpublished unless the creator separately authorizes publication. While unpublished, only the exact current Preview hostname may be authorized for testing; the final website hostname is added once known and approved. Vimeo domain privacy is configured on the selected EJ Coaching videos or dedicated upload defaults, not unrelated videos. Domain restrictions do not replace client login and course permissions, which remain a separate unfinished feature.
+
+### Current Vimeo account outcome
+
+The creator connected a new Free Vimeo account. The actual account UI gates both account-wide domain defaults and per-video Specific domains behind Upgrade, despite generic documentation describing broader availability. No subscription was purchased. As a safe staging setting, only future-upload visibility was saved as Private; it must later become an appropriate client-playable privacy mode, not remain Private for client course playback. The existing 12-second EJ Coaching technical demo is privately hosted on Vimeo (video 1241612447) for the subsequent domain test. No customer course record was changed. Domain configuration and playback verification are explicitly pending the creator’s choice on a compatible Vimeo subscription and the exact final domain. Direct MP4 delivery remains available as an alternative.

@@ -28,6 +28,7 @@ import type {
   LessonInput,
   LessonResource,
 } from "@shared/content";
+import { parseVimeoUrl } from "@shared/vimeo";
 import AdminGate from "@/components/AdminGate";
 import { trpc } from "@/lib/trpc";
 import "./Admin.css";
@@ -120,7 +121,7 @@ function isHttpsUrl(value: string) {
   }
 }
 
-function isAllowedVideoUrl(value: string) {
+export function isAllowedVideoUrl(value: string) {
   try {
     const parsed = new URL(value);
     if (parsed.protocol !== "https:" || parsed.username || parsed.password)
@@ -152,14 +153,7 @@ function isAllowedVideoUrl(value: string) {
     ) {
       return parts.length === 2 && videoId.test(parts[1] ?? "");
     }
-    if (host === "vimeo.com" || host === "www.vimeo.com")
-      return parts.length === 1 && /^\d{1,16}$/.test(parts[0] ?? "");
-    if (host === "player.vimeo.com")
-      return (
-        parts.length === 2 &&
-        parts[0] === "video" &&
-        /^\d{1,16}$/.test(parts[1] ?? "")
-      );
+    if (parseVimeoUrl(value)) return true;
     if (
       host === "fast.wistia.com" ||
       host === "fast.wistia.net" ||
@@ -333,25 +327,41 @@ function EditorContent() {
     if (!courseDirty && !lessonDirty) return;
     const beforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
-      event.returnValue = '';
+      event.returnValue = "";
     };
     const beforeLink = (event: MouseEvent) => {
       const element = event.target instanceof Element ? event.target : null;
-      const anchor = element?.closest<HTMLAnchorElement>('a[href]');
-      if (!anchor || anchor.target === '_blank' || anchor.hasAttribute('download')) return;
-      if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0) return;
+      const anchor = element?.closest<HTMLAnchorElement>("a[href]");
+      if (
+        !anchor ||
+        anchor.target === "_blank" ||
+        anchor.hasAttribute("download")
+      )
+        return;
+      if (
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        event.altKey ||
+        event.button !== 0
+      )
+        return;
       const destination = new URL(anchor.href, window.location.href);
       if (destination.href === window.location.href) return;
-      if (!window.confirm('Tu as des modifications non enregistrées. Veux-tu vraiment quitter cet éditeur?')) {
+      if (
+        !window.confirm(
+          "Tu as des modifications non enregistrées. Veux-tu vraiment quitter cet éditeur?"
+        )
+      ) {
         event.preventDefault();
         event.stopImmediatePropagation();
       }
     };
-    window.addEventListener('beforeunload', beforeUnload);
-    document.addEventListener('click', beforeLink, true);
+    window.addEventListener("beforeunload", beforeUnload);
+    document.addEventListener("click", beforeLink, true);
     return () => {
-      window.removeEventListener('beforeunload', beforeUnload);
-      document.removeEventListener('click', beforeLink, true);
+      window.removeEventListener("beforeunload", beforeUnload);
+      document.removeEventListener("click", beforeLink, true);
     };
   }, [courseDirty, lessonDirty]);
 
@@ -1336,6 +1346,8 @@ function EditorContent() {
                       Accepte un MP4 HTTPS ou un lien YouTube, Vimeo ou Wistia
                       reconnu. Une URL MP4 est enregistrée comme fichier vidéo;
                       les liens de partage ordinaires ne sont pas acceptés.
+                      Colle le lien Vimeo complet, y compris la partie privée ou
+                      le paramètre h, si présent.
                     </small>
                   </label>
                 )}
