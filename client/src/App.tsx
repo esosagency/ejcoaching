@@ -1,42 +1,32 @@
-import { Toaster } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import NotFound from "@/pages/NotFound";
-import { Route, Switch } from "wouter";
-import ErrorBoundary from "./components/ErrorBoundary";
-import { ThemeProvider } from "./contexts/ThemeContext";
-import Home from "./pages/Home";
+import { Route, Switch } from 'wouter';
+import ErrorBoundary from './components/ErrorBoundary';
+import LearningShell from './components/LearningShell';
+import { LearningProvider } from './contexts/LearningContext';
+import Home from './pages/Home';
+import Library from './pages/Library';
+import CourseDetail from './pages/CourseDetail';
+import Lesson from './pages/Lesson';
+import MyLearning from './pages/MyLearning';
+import Resources from './pages/Resources';
+import NotFound from './pages/NotFound';
 
-function Router() {
-  // make sure to consider if you need authentication for certain routes
-  return (
-    <Switch>
-      <Route path={"/"} component={Home} />
-      <Route path={"/404"} component={NotFound} />
-      {/* Final fallback route */}
-      <Route component={NotFound} />
-    </Switch>
-  );
-}
-
-// NOTE: About Theme
-// - First choose a default theme according to your design style (dark or light bg), than change color palette in index.css
-//   to keep consistent foreground/background color across components
-// - If you want to make theme switchable, pass `switchable` ThemeProvider and use `useTheme` hook
-
-function App() {
+export default function App() {
   return (
     <ErrorBoundary>
-      <ThemeProvider
-        defaultTheme="light"
-        // switchable
-      >
-        <TooltipProvider>
-          <Toaster />
-          <Router />
-        </TooltipProvider>
-      </ThemeProvider>
+      <LearningProvider>
+        <LearningShell>
+          <Switch>
+            <Route path="/" component={Home} />
+            <Route path="/courses" component={Library} />
+            <Route path="/courses/:courseId" component={CourseDetail} />
+            <Route path="/learn/:courseId/:lessonId" component={Lesson} />
+            <Route path="/my-learning" component={MyLearning} />
+            <Route path="/resources" component={Resources} />
+            <Route path="/404" component={NotFound} />
+            <Route component={NotFound} />
+          </Switch>
+        </LearningShell>
+      </LearningProvider>
     </ErrorBoundary>
   );
 }
-
-export default App;

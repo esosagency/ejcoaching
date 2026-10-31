@@ -1,72 +1,15 @@
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { AlertCircle, Home } from "lucide-react";
-import { useEffect } from "react";
-import { useLocation } from "wouter";
+import { Link } from 'wouter';
+import { ArrowLeft, BookOpen } from 'lucide-react';
+import { useEffect } from 'react';
 
-// Hosting answers this path with HTTP 404 while still serving the app.
-const NOT_FOUND_PATH = "/404";
-
-// Render for unknown routes and for items the server confirmed missing (e.g. `/page/:id`).
-// The redirect is irreversible: never render while loading, on other errors, or before auth resolves.
 export default function NotFound() {
-  const [, setLocation] = useLocation();
-
   useEffect(() => {
-    const robots = document.createElement("meta");
-    robots.name = "robots";
-    robots.content = "noindex";
+    const robots = document.createElement('meta');
+    robots.name = 'robots';
+    robots.content = 'noindex';
     document.head.appendChild(robots);
-
-    // Full-page navigation: a client-side route change sends no request, so no 404 status.
-    if (window.location.pathname.replace(/\/$/, "") !== NOT_FOUND_PATH) {
-      window.location.replace(NOT_FOUND_PATH);
-    }
-
+    if (window.location.pathname.replace(/\/$/, '') !== '/404') window.location.replace('/404');
     return () => robots.remove();
   }, []);
-
-  const handleGoHome = () => {
-    setLocation("/");
-  };
-
-  return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">
-      <Card className="w-full max-w-lg mx-4 shadow-lg border-0 bg-white/80 backdrop-blur-sm">
-        <CardContent className="pt-8 pb-8 text-center">
-          <div className="flex justify-center mb-6">
-            <div className="relative">
-              <div className="absolute inset-0 bg-red-100 rounded-full animate-pulse" />
-              <AlertCircle className="relative h-16 w-16 text-red-500" />
-            </div>
-          </div>
-
-          <h1 className="text-4xl font-bold text-slate-900 mb-2">404</h1>
-
-          <h2 className="text-xl font-semibold text-slate-700 mb-4">
-            Page Not Found
-          </h2>
-
-          <p className="text-slate-600 mb-8 leading-relaxed">
-            Sorry, the page you are looking for doesn't exist.
-            <br />
-            It may have been moved or deleted.
-          </p>
-
-          <div
-            id="not-found-button-group"
-            className="flex flex-col sm:flex-row gap-3 justify-center"
-          >
-            <Button
-              onClick={handleGoHome}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
-            >
-              <Home className="w-4 h-4 mr-2" />
-              Go Home
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
+  return <section className="panel" style={{ padding: '60px 30px', textAlign: 'center', maxWidth: 650, margin: '60px auto' }}><span className="icon-chip" style={{ margin: '0 auto 20px' }}><BookOpen size={22} /></span><p className="eyebrow" style={{ justifyContent: 'center' }}>404 · PAGE NOT FOUND</p><h1 className="page-title" style={{ margin: '15px 0' }}>Let’s find your next lesson.</h1><p className="muted" style={{ fontSize: 14, lineHeight: 1.8, marginBottom: 25 }}>This page or lesson isn’t part of the preview.<br />Your course library is a good place to continue.</p><Link href="/courses" className="btn primary"><ArrowLeft size={16} /> Back to course library</Link></section>;
 }
