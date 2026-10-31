@@ -300,3 +300,19 @@ img { display: block; max-width: 100%; }
 @media (prefers-reduced-motion: reduce) {
   *, *:before, *:after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 }
+
+/* Persistent catalog and authenticated workspace controls. */
+.catalog-status { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 18px; min-height: 340px; padding: 40px 25px; text-align: center; }
+.catalog-status > svg { color: #b29aef; }
+.catalog-status h1 { font-size: 23px; max-width: 600px; }
+.catalog-status p { font-size: 13px; line-height: 1.8; color: #9b9db3; max-width: 500px; }
+.catalog-spinner { animation: catalog-spin 1s linear infinite; }
+@keyframes catalog-spin { to { transform: rotate(360deg); } }
+.header-login { display: inline-flex; align-items: center; gap: 7px; background: #211c30; border: 1px solid #423550; color: #c8b5f3; padding: 9px 12px; border-radius: 7px; font-size: 11px; white-space: nowrap; }
+.header-login:hover { background: #2c223e; }
+.preview-profile > span:last-child { max-width: 135px; overflow: hidden; text-overflow: ellipsis; }
+.admin-entry-link { margin-bottom: 8px; border-bottom: 1px solid #292535; padding-bottom: 15px; }
+.logout-button { width: 27px; height: 30px; }
+@media (max-width: 760px) { .header-right { gap: 8px; } .header-login { font-size: 10px; padding: 8px; } }
+@media (max-width: 380px) { .header-right .preview-badge { display: none; } }
+@media (prefers-reduced-motion: reduce) { .catalog-spinner { animation: none; } }

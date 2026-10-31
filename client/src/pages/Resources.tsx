@@ -1,91 +1,66 @@
 import { ArrowDownToLine, BookOpenText, ClipboardList, FileText, MessageCircleQuestion, ShieldCheck } from "lucide-react";
+import { useMemo } from "react";
+import { useCatalog } from "@/contexts/CatalogContext";
+import type { Course, Lesson, LessonResource } from "@shared/content";
 import "./LearningPages.css";
 
-type Resource = {
+type SampleTemplate = {
   title: string;
   description: string;
-  filename: string;
   icon: typeof FileText;
-  content: string;
   category: string;
 };
 
-const resources: Resource[] = [
-  {
-    title: "Réflexion hebdomadaire sur ta routine",
-    description: "Une courte série de questions pour remarquer ce qui a soutenu ta routine cette semaine.",
-    filename: "ej-exemple-reflexion-hebdomadaire.md",
-    icon: ClipboardList,
-    category: "Motivation",
-    content: "# EJ Coaching — Exemple de réflexion hebdomadaire sur ta routine\n\n> PLAN D’EXEMPLE — questions éducatives seulement. Ceci n’est ni une prescription, ni une évaluation, ni un dossier de coaching.\n\n## Remarque\n- Qu’est-ce qui a été plus facile à répéter cette semaine?\n- Qu’est-ce qui a rendu ta routine plus difficile à protéger?\n- Quelle petite prochaine étape pourrais-tu discuter avec ton coach?\n\n## À apporter à ta conversation\n- Une réussite à reconnaître\n- Une question au sujet de ton plan\n- Toute préoccupation concernant ton bien-être ou ta récupération qui nécessite l’avis d’une personne qualifiée\n",
-  },
-  {
-    title: "Notes de séance d’entraînement",
-    description: "Un simple plan d’exemple pour réfléchir à la qualité des mouvements, à la préparation et aux questions pour ton coach.",
-    filename: "ej-exemple-notes-seance-entrainement.md",
-    icon: BookOpenText,
-    category: "Entraînement",
-    content: "# EJ Coaching — Exemple de notes de séance d’entraînement\n\n> PLAN D’EXEMPLE — cette fiche ne remplace pas une programmation personnalisée ni les directives d’une personne qualifiée.\n\n## Réfléchis\n- Quel mouvement t’a semblé le plus familier aujourd’hui?\n- Quelle question sur la préparation ou la technique aimerais-tu clarifier?\n- Est-ce que quelque chose t’a semblé inconfortable ou inattendu? Si oui, arrête et cherche l’accompagnement approprié.\n\n## À discuter avec ton coach\n- Les questions sur la préparation aux exercices\n- Ton ressenti global pendant la séance\n- Le soutien qui t’aiderait à aborder la prochaine séance avec plus d’assurance\n",
-  },
-  {
-    title: "Questions pour discuter de ton journal alimentaire",
-    description: "Utilise ces questions non prescriptives pour apporter des observations utiles à une conversation sur la nutrition.",
-    filename: "ej-exemple-questions-journal-alimentaire.md",
-    icon: FileText,
-    category: "Nutrition",
-    content: "# EJ Coaching — Exemple de questions pour discuter de ton journal alimentaire\n\n> PLAN D’EXEMPLE — aucune recommandation concernant les calories, les portions ou les dosages n’est incluse. Les conseils nutritionnels personnalisés devraient venir d’un professionnel qualifié.\n\n## Observe\n- Quelles tendances as-tu remarquées dans ton horaire?\n- Qu’est-ce qui a rendu le suivi alimentaire pratique ou difficile?\n- Quelle question aimerais-tu explorer avec ton coach?\n\n## À retenir\nUtilise tes observations comme information, non comme jugement. Discute de tes besoins individuels, de tes préoccupations médicales ou de changements alimentaires avec un professionnel qualifié approprié.\n",
-  },
-  {
-    title: "Questions à aborder avec ton coach",
-    description: "Une fiche de questions réutilisable pour transformer ta curiosité en une conversation de coaching plus utile.",
-    filename: "ej-exemple-questions-coaching.md",
-    icon: MessageCircleQuestion,
-    category: "Bien-être",
-    content: "# EJ Coaching — Exemple de questions à aborder avec ton coach\n\n> PLAN D’EXEMPLE — pour l’éducation et la préparation de conversations seulement.\n\n- Quelle est l’intention derrière cette partie de mon plan?\n- Sur quoi devrais-je m’exercer en premier?\n- Quel contexte te serait utile à connaître?\n- Quand devrais-je demander un soutien additionnel d’un professionnel de la santé qualifié?\n\nCe modèle ne contient aucune recommandation personnalisée.\n",
-  },
+type CatalogResource = LessonResource & { course: Course; lesson: Lesson };
+
+const sampleTemplates: SampleTemplate[] = [
+  { title: "Réflexion hebdomadaire sur ta routine", description: "Une courte série de questions pour remarquer ce qui a soutenu ta routine cette semaine.", icon: ClipboardList, category: "Motivation" },
+  { title: "Notes de séance d’entraînement", description: "Un simple plan d’exemple pour réfléchir à la qualité des mouvements, à la préparation et aux questions pour ton coach.", icon: BookOpenText, category: "Entraînement" },
+  { title: "Questions pour discuter de ton journal alimentaire", description: "Utilise ces questions non prescriptives pour apporter des observations utiles à une conversation sur la nutrition.", icon: FileText, category: "Nutrition" },
+  { title: "Questions à aborder avec ton coach", description: "Une fiche de questions réutilisable pour transformer ta curiosité en une conversation de coaching plus utile.", icon: MessageCircleQuestion, category: "Bien-être" },
 ];
 
-function downloadResource(resource: Resource) {
-  const blob = new Blob([resource.content], { type: "text/markdown;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = resource.filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
-}
-
 export default function Resources() {
+  const { courses: catalogCourses, loading, error, retry, isAdminPreview } = useCatalog();
+  const courses = useMemo(() => isAdminPreview ? catalogCourses : catalogCourses.filter((course) => course.status !== "draft"), [catalogCourses, isAdminPreview]);
+  const resources = useMemo<CatalogResource[]>(() => courses.flatMap((course) => course.lessons.flatMap((lesson) => (lesson.resources || []).map((resource) => ({ ...resource, course, lesson })))), [courses]);
+
+  if (loading) return <div className="lp-page"><section className="panel lp-empty-state"><FileText size={25} /><h2>Chargement des ressources</h2><p className="muted">Les documents associés aux cours sont en cours de chargement.</p></section></div>;
+  if (error) return <div className="lp-page"><section className="panel lp-empty-state"><FileText size={25} /><h2>Les ressources sont momentanément indisponibles.</h2><p className="muted">Réessaie dans un instant.</p><button type="button" className="btn secondary" onClick={() => retry()}>Réessayer</button></section></div>;
+
   return (
     <div className="lp-page">
       <section className="lp-resource-hero panel">
         <div className="lp-resource-hero-icon"><FileText size={25} /></div>
         <div>
-          <div className="lp-kicker">Outils EJ Coaching <span className="lp-demo-badge">EXEMPLE</span></div>
+          <div className="lp-kicker">Outils EJ Coaching</div>
           <p className="eyebrow">RÉFLÉCHIS · PRÉPARE-TOI · POSE TES QUESTIONS</p>
           <h1 className="page-title">Des ressources pour une pratique réfléchie.</h1>
-          <p className="lp-lead">Télécharge de simples plans d’exemple modifiables pour soutenir une conversation de coaching. Ce ne sont ni des dossiers clients, ni des outils de suivi, ni des directives personnalisées.</p>
+          <p className="lp-lead">Retrouve les documents ajoutés à tes leçons, ainsi que des fiches d’exemple pour préparer une conversation de coaching.</p>
         </div>
       </section>
-
       <section className="lp-resource-intro">
-        <div><p className="eyebrow">TÉLÉCHARGEMENTS D’EXEMPLE</p><h2>Garde les questions utiles à portée de main.</h2></div>
-        <div className="lp-resource-disclosure"><ShieldCheck size={17} /><span>Les téléchargements contiennent seulement des questions éducatives — aucun conseil sur les dosages, les calories ou la santé.</span></div>
+        <div><p className="eyebrow">DOCUMENTS DE TES COURS</p><h2>Garde les ressources utiles à portée de main.</h2></div>
+        <div className="lp-resource-disclosure"><ShieldCheck size={17} /><span>Les documents sont fournis avec les leçons auxquelles ils se rapportent. Consulte un professionnel qualifié pour les conseils personnalisés de santé, de nutrition ou d’entraînement.</span></div>
       </section>
-
-      <section className="lp-resource-grid">
-        {resources.map((resource) => {
-          const Icon = resource.icon;
-          return (
-            <article className="panel lp-resource-card" key={resource.title}>
-              <div className="lp-resource-card-top"><span className="lp-resource-icon"><Icon size={20} /></span><span className="lp-resource-category">{resource.category}</span></div>
-              <h3>{resource.title}</h3>
-              <p>{resource.description}</p>
-              <button type="button" className="btn secondary" onClick={() => downloadResource(resource)}><ArrowDownToLine size={16} /> Télécharger le fichier .md</button>
-            </article>
-          );
+      {resources.length ? <section className="lp-resource-grid">
+        {resources.map((resource) => (
+          <article className="panel lp-resource-card" key={`${resource.course.id}:${resource.lesson.id}:${resource.id}`}>
+            <div className="lp-resource-card-top"><span className="lp-resource-icon"><FileText size={20} /></span><span className="lp-resource-category">{resource.course.category}</span></div>
+            <h3>{resource.title}</h3>
+            <p>{resource.course.title} · {resource.lesson.title}{resource.filename ? ` · ${resource.filename}` : ""}</p>
+            <a href={resource.url} target="_blank" rel="noopener noreferrer" className="btn secondary"><ArrowDownToLine size={16} /> Ouvrir le document</a>
+          </article>
+        ))}
+      </section> : <section className="panel lp-empty-state"><FileText size={26} /><h3>Aucun document n’a encore été ajouté aux leçons.</h3><p className="muted">Les documents ajoutés aux cours publiés apparaîtront ici.</p></section>}
+      <section id="exemples-de-fiches" className="lp-resource-intro">
+        <div><p className="eyebrow">EXEMPLES DE FICHES</p><h2>Quatre amorces de réflexion.</h2></div>
+        <div className="lp-resource-disclosure"><ShieldCheck size={17} /><span>Ces fiches sont des exemples éducatifs; elles ne constituent pas un plan personnalisé ni un dossier client.</span></div>
+      </section>
+      <section className="lp-resource-grid" aria-label="Exemples de fiches">
+        {sampleTemplates.map((template) => {
+          const Icon = template.icon;
+          return <article className="panel lp-resource-card" key={template.title}><div className="lp-resource-card-top"><span className="lp-resource-icon"><Icon size={20} /></span><span className="lp-demo-badge">EXEMPLE DE FICHE</span></div><h3>{template.title}</h3><p>{template.description}</p><span className="lp-resource-category">{template.category} · Questions éducatives</span></article>;
         })}
       </section>
     </div>

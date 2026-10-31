@@ -1,0 +1,50 @@
+export type CourseIcon = 'nutrition' | 'training' | 'mindset' | 'deficit' | 'surplus' | 'equipment' | 'supplements';
+export type LessonResource = { id: string; title: string; url: string; filename?: string };
+export type Lesson = {
+  id: string;
+  title: string;
+  duration: string;
+  description: string;
+  takeaways: string[];
+  videoUrl?: string;
+  videoType?: 'demo' | 'file' | 'embed';
+  resources?: LessonResource[];
+  position?: number;
+  revision?: number;
+};
+export type Course = {
+  id: string;
+  title: string;
+  category: string;
+  eyebrow: string;
+  description: string;
+  color: string;
+  image?: string;
+  icon: CourseIcon;
+  lessons: Lesson[];
+  status?: 'draft' | 'published';
+  isSample?: boolean;
+  position?: number;
+  revision?: number;
+  updatedAt?: string;
+};
+export type CourseInput = {
+  title: string;
+  category: string;
+  eyebrow: string;
+  description: string;
+  color: string;
+  image?: string;
+  icon: CourseIcon;
+  status: 'draft' | 'published';
+  isSample: boolean;
+};
+export type LessonInput = {
+  title: string;
+  duration: string;
+  description: string;
+  takeaways: string[];
+  videoUrl?: string;
+  videoType: 'demo' | 'file' | 'embed';
+  resources: LessonResource[];
+};

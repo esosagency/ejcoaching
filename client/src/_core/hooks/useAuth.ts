@@ -51,10 +51,11 @@ export function useAuth(options?: UseAuthOptions) {
   }, [logoutMutation, utils]);
 
   const state = useMemo(() => {
-    localStorage.setItem(
-      "manus-runtime-user-info",
-      JSON.stringify(meQuery.data)
-    );
+    try {
+      localStorage.setItem("manus-runtime-user-info", JSON.stringify(meQuery.data));
+    } catch {
+      // Storage is optional; the validated server session remains authoritative.
+    }
     return {
       user: meQuery.data ?? null,
       loading: meQuery.isLoading || logoutMutation.isPending,

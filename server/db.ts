@@ -1,91 +1,37 @@
-import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
-import { ENV } from './_core/env';
+import { eq } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/mysql2';
+import { adminAccess, type InsertUser, users } from '../drizzle/schema';
 
 let _db: ReturnType<typeof drizzle> | null = null;
-
-// Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
-    try {
-      _db = drizzle(process.env.DATABASE_URL);
-    } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
-      _db = null;
-    }
-  }
+  if (!_db && process.env.DATABASE_URL) _db = drizzle(process.env.DATABASE_URL);
   return _db;
 }
 
-export async function upsertUser(user: InsertUser): Promise<void> {
-  if (!user.openId) {
-    throw new Error("User openId is required for upsert");
-  }
-
+export async function upsertUser(user: Omit<InsertUser, 'role'>): Promise<void> {
+  if (!user.openId) throw new Error('Identifiant de connexion manquant.');
   const db = await getDb();
-  if (!db) {
-    throw new Error("Database is not available");
+  if (!db) throw new Error('La base de données n’est pas disponible.');
+  const [existing] = await db.select().from(users).where(eq(users.openId, user.openId)).limit(1);
+  // Email comes only from the validated OAuth identity, never from an application form.
+  const email = (user.email !== undefined ? user.email : existing?.email)?.trim().toLowerCase() || null;
+  const [authorization] = email ? await db.select().from(adminAccess).where(eq(adminAccess.email, email)).limit(1) : [];
+  const role = authorization ? 'admin' : 'user';
+  const values: InsertUser = { openId: user.openId, role, lastSignedIn: user.lastSignedIn ?? new Date() };
+  const updates: Record<string, unknown> = { role, lastSignedIn: values.lastSignedIn };
+  for (const field of ['name', 'email', 'loginMethod'] as const) {
+    if (user[field] !== undefined) {
+      const value = field === 'email' ? email : user[field] ?? null;
+      values[field] = value;
+      updates[field] = value;
+    }
   }
-
-  try {
-    const values: InsertUser = {
-      openId: user.openId,
-    };
-    const updateSet: Record<string, unknown> = {};
-
-    const textFields = ["name", "email", "loginMethod"] as const;
-    type TextField = (typeof textFields)[number];
-
-    const assignNullable = (field: TextField) => {
-      const value = user[field];
-      if (value === undefined) return;
-      const normalized = value ?? null;
-      values[field] = normalized;
-      updateSet[field] = normalized;
-    };
-
-    textFields.forEach(assignNullable);
-
-    if (user.lastSignedIn !== undefined) {
-      values.lastSignedIn = user.lastSignedIn;
-      updateSet.lastSignedIn = user.lastSignedIn;
-    }
-    if (user.role !== undefined) {
-      values.role = user.role;
-      updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId) {
-      values.role = 'admin';
-      updateSet.role = 'admin';
-    }
-
-    if (!values.lastSignedIn) {
-      values.lastSignedIn = new Date();
-    }
-
-    if (Object.keys(updateSet).length === 0) {
-      updateSet.lastSignedIn = new Date();
-    }
-
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
-      set: updateSet,
-    });
-  } catch (error) {
-    console.error("[Database] Failed to upsert user:", error);
-    throw error;
-  }
+  await db.insert(users).values(values).onDuplicateKeyUpdate({ set: updates });
 }
 
 export async function getUserByOpenId(openId: string) {
   const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot get user: database not available");
-    return undefined;
-  }
-
-  const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
-
-  return result.length > 0 ? result[0] : undefined;
+  if (!db) return undefined;
+  const [user] = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+  return user;
 }
-
-// TODO: add feature queries here as your schema grows.

@@ -1,22 +1,5 @@
-export type Lesson = {
-  id: string;
-  title: string;
-  duration: string;
-  description: string;
-  takeaways: string[];
-};
-
-export type Course = {
-  id: string;
-  title: string;
-  category: string;
-  eyebrow: string;
-  description: string;
-  color: string;
-  image?: string;
-  icon: 'nutrition' | 'training' | 'mindset' | 'deficit' | 'surplus' | 'equipment' | 'supplements';
-  lessons: Lesson[];
-};
+import type { Course, Lesson } from '@shared/content';
+export type { Course, Lesson } from '@shared/content';
 
 const imageRoot = '/manus-storage/async-images/Cidmx6jXzCnndw1HXoG6Ui';
 export const courseImages = {

@@ -1,7 +1,8 @@
 import type { CSSProperties } from "react";
-import { Apple, Brain, Dumbbell, Flame, PackageOpen, Pill, Play, TrendingUp } from "lucide-react";
+import { Apple, BookOpen, Brain, Dumbbell, Flame, PackageOpen, Pill, Play, TrendingUp } from "lucide-react";
 import { Link } from "wouter";
-import { totalMinutes, type Course } from "@/lib/courses";
+import { totalMinutes } from "@/lib/courses";
+import type { Course } from "@shared/content";
 import "@/pages/LearningPages.css";
 
 type CourseCardProps = {
@@ -22,9 +23,8 @@ const courseIcons = {
 };
 
 export function CourseArtwork({ course, className = "" }: { course: Course; className?: string }) {
-  const Icon = courseIcons[course.icon];
+  const Icon = courseIcons[course.icon] || BookOpen;
   const artStyle = { "--course-color": course.color } as CSSProperties;
-
   if (course.image) {
     return (
       <div className={`lp-course-art lp-course-photo ${className}`} style={artStyle}>
@@ -34,7 +34,6 @@ export function CourseArtwork({ course, className = "" }: { course: Course; clas
       </div>
     );
   }
-
   return (
     <div className={`lp-course-art lp-course-abstract ${className}`} style={artStyle} aria-hidden="true">
       <span className="lp-art-orbit lp-art-orbit-one" />
@@ -47,25 +46,21 @@ export function CourseArtwork({ course, className = "" }: { course: Course; clas
 }
 
 export default function CourseCard({ course, progress = 0, savedCount = 0, compact = false }: CourseCardProps) {
-  const progressLabel = progress === 100 ? "Terminé dans la démo" : `${progress} % de progression dans la démo`;
-
+  const safeProgress = Number.isFinite(progress) ? Math.max(0, Math.min(100, progress)) : 0;
+  const isSample = course.isSample !== false;
+  const progressLabel = safeProgress === 100 ? "Terminé dans ce navigateur" : `${safeProgress} % de progression dans ce navigateur`;
   return (
     <Link href={`/courses/${course.id}`} className={`lp-course-card ${compact ? "lp-course-card-compact" : ""}`}>
       <CourseArtwork course={course} />
       <div className="lp-course-card-body">
-        <div className="lp-card-meta">
-          <span>{course.category}</span>
-          <span>{course.lessons.length} leçon{course.lessons.length === 1 ? "" : "s"}</span>
-        </div>
+        <div className="lp-card-meta"><span>{course.category}</span><span>{course.lessons.length} leçon{course.lessons.length === 1 ? "" : "s"}</span></div>
         <h3>{course.title}</h3>
         {!compact && <p>{course.description}</p>}
         <div className="lp-course-card-footer">
-          <span>{totalMinutes(course)} min <em>exemple</em></span>
-          {savedCount > 0 ? <span className="lp-saved-count">{savedCount} leçon{savedCount === 1 ? "" : "s"} enregistrée{savedCount === 1 ? "" : "s"}</span> : <span className="lp-demo-label">{progressLabel}</span>}
+          <span>{totalMinutes(course)} min {isSample && <em>exemple</em>}</span>
+          {savedCount > 0 ? <span className="lp-saved-count">{savedCount} leçon{savedCount === 1 ? "" : "s"} enregistrée{savedCount === 1 ? "" : "s"}</span> : isSample ? <span className="lp-demo-label">CONTENU D’EXEMPLE</span> : <span className="lp-demo-label">{progressLabel}</span>}
         </div>
-        <div className="progress-track lp-card-progress" aria-label={progressLabel}>
-          <span className="progress-fill" style={{ width: `${progress}%` }} />
-        </div>
+        <div className="progress-track lp-card-progress" aria-label={progressLabel}><span className="progress-fill" style={{ width: `${safeProgress}%` }} /></div>
       </div>
     </Link>
   );

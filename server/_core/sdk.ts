@@ -293,36 +293,24 @@ class SDKServer {
 
     const sessionUserId = session.openId;
     const signedInAt = new Date();
-    let user = await db.getUserByOpenId(sessionUserId);
-
-    // If user not in DB, sync from OAuth server automatically
-    if (!user) {
-      try {
-        const userInfo = await this.getUserInfoWithJwt(sessionToken ?? "");
-        await db.upsertUser({
-          openId: userInfo.openId,
-          name: userInfo.name || null,
-          email: userInfo.email ?? null,
-          loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
-          lastSignedIn: signedInAt,
-        });
-        user = await db.getUserByOpenId(userInfo.openId);
-      } catch (error) {
-        console.error("[Auth] Failed to sync user from OAuth:", error);
-        throw ForbiddenError("Failed to sync user info");
-      }
+    // Permissions depend on current OAuth identity, not a stale email in the database.
+    try {
+      const userInfo = await this.getUserInfoWithJwt(sessionToken ?? "");
+      if (userInfo.openId !== sessionUserId) throw ForbiddenError("OAuth identity mismatch");
+      await db.upsertUser({
+        openId: sessionUserId,
+        name: userInfo.name || null,
+        email: userInfo.email ?? null,
+        loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
+        lastSignedIn: signedInAt,
+      });
+      const user = await db.getUserByOpenId(sessionUserId);
+      if (!user) throw ForbiddenError("User not found");
+      return user;
+    } catch {
+      console.error("[Auth] Managed identity refresh failed; access denied.");
+      throw ForbiddenError("Impossible de vérifier ce compte pour le moment.");
     }
-
-    if (!user) {
-      throw ForbiddenError("User not found");
-    }
-
-    await db.upsertUser({
-      openId: user.openId,
-      lastSignedIn: signedInAt,
-    });
-
-    return user;
   }
 }
 
