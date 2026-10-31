@@ -6,6 +6,11 @@ describe('EJ Coaching sample course catalog', () => {
     expect(courses.map(course => course.id)).toEqual(['nutrition', 'training', 'mindset', 'deficit', 'surplus', 'equipment', 'supplements']);
     expect(new Set(courses.map(course => course.id)).size).toBe(courses.length);
   });
+  it('uses the French Canadian category names without changing route identifiers', () => {
+    expect([...new Set(courses.map(course => course.category))]).toEqual(['Nutrition', 'Entraînement', 'Motivation', 'Bien-être']);
+    expect(getCourse('nutrition')?.title).toBe('Les bases de la nutrition');
+    expect(getCourse('equipment')?.title).toBe('À l’aise au gym');
+  });
   it('provides distinct valid lesson identifiers and positive sample durations', () => {
     expect(new Set(allLessons.map(lesson => lesson.id)).size).toBe(allLessons.length);
     for (const course of courses) {

@@ -5,17 +5,17 @@ import { useLearning } from "@/contexts/LearningContext";
 import { courses } from "@/lib/courses";
 import "./LearningPages.css";
 
-const categories = ["All courses", "Nutrition", "Training", "Mindset", "Wellness"];
+const categories = ["Tous les cours", "Nutrition", "Entraînement", "Motivation", "Bien-être"];
 
 export default function Library() {
-  const [category, setCategory] = useState("All courses");
+  const [category, setCategory] = useState("Tous les cours");
   const [query, setQuery] = useState("");
   const { courseProgress } = useLearning();
 
   const visibleCourses = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return courses.filter((course) => {
-      const matchesCategory = category === "All courses" || course.category === category;
+      const matchesCategory = category === "Tous les cours" || course.category === category;
       const matchesSearch = !normalizedQuery || [course.title, course.description, course.category, course.eyebrow]
         .join(" ")
         .toLowerCase()
@@ -28,20 +28,20 @@ export default function Library() {
     <div className="lp-page">
       <section className="lp-library-hero">
         <div className="lp-hero-copy">
-          <div className="lp-kicker"><Sparkles size={13} /> EJ coaching academy <span className="lp-demo-badge">DEMO</span></div>
-          <p className="eyebrow">VIDEO-LED EDUCATION</p>
-          <h1 className="page-title">Learn the why behind your routine.</h1>
-          <p className="lp-lead">A considered library of sample lessons to help you bring more confidence and better questions to your coaching conversations.</p>
+          <div className="lp-kicker"><Sparkles size={13} /> Académie EJ Coaching <span className="lp-demo-badge">DÉMO</span></div>
+          <p className="eyebrow">APPRENTISSAGE PAR VIDÉO</p>
+          <h1 className="page-title">Comprends le pourquoi derrière ta routine.</h1>
+          <p className="lp-lead">Une bibliothèque réfléchie de leçons d’exemple pour t’aider à gagner en assurance et à poser de meilleures questions lors de tes conversations de coaching.</p>
         </div>
         <div className="lp-library-hero-stat panel">
-          <span className="lp-stat-label">THE CATALOGUE</span>
+          <span className="lp-stat-label">LE CATALOGUE</span>
           <strong>{courses.length}</strong>
-          <span>sample courses across nutrition, training, mindset and wellness.</span>
+          <span>cours d’exemple en nutrition, entraînement, motivation et bien-être.</span>
         </div>
       </section>
 
-      <section className="lp-library-controls" aria-label="Browse courses">
-        <div className="lp-category-row" role="tablist" aria-label="Course category">
+      <section className="lp-library-controls" aria-label="Parcourir les cours">
+        <div className="lp-category-row" role="tablist" aria-label="Catégorie de cours">
           {categories.map((item) => (
             <button
               key={item}
@@ -55,19 +55,19 @@ export default function Library() {
             </button>
           ))}
         </div>
-        <label className="lp-search" aria-label="Search the course library">
+        <label className="lp-search" aria-label="Rechercher dans la bibliothèque de cours">
           <Search size={17} />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search lessons, topics…" />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher des leçons, des sujets…" />
         </label>
       </section>
 
       <section>
         <div className="section-heading lp-library-heading">
           <div>
-            <p className="eyebrow">CURATED FOR YOUR JOURNEY</p>
-            <h2>{category === "All courses" ? "Explore the library" : category}</h2>
+            <p className="eyebrow">CHOISI POUR TON PARCOURS</p>
+            <h2>{category === "Tous les cours" ? "Explorer la bibliothèque" : category}</h2>
           </div>
-          <p className="muted">{visibleCourses.length} {visibleCourses.length === 1 ? "course" : "courses"} · sample catalogue</p>
+          <p className="muted">{visibleCourses.length} cours · catalogue d’exemples</p>
         </div>
 
         {visibleCourses.length ? (
@@ -77,9 +77,9 @@ export default function Library() {
         ) : (
           <div className="panel lp-empty-state">
             <Search size={24} />
-            <h3>No sample courses match that search.</h3>
-            <p className="muted">Try a broader topic or return to all courses.</p>
-            <button type="button" className="btn secondary" onClick={() => { setCategory("All courses"); setQuery(""); }}>Clear filters</button>
+            <h3>Aucun cours d’exemple ne correspond à cette recherche.</h3>
+            <p className="muted">Essaie un sujet plus général ou reviens à tous les cours.</p>
+            <button type="button" className="btn secondary" onClick={() => { setCategory("Tous les cours"); setQuery(""); }}>Effacer les filtres</button>
           </div>
         )}
       </section>

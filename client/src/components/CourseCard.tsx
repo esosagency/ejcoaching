@@ -47,7 +47,7 @@ export function CourseArtwork({ course, className = "" }: { course: Course; clas
 }
 
 export default function CourseCard({ course, progress = 0, savedCount = 0, compact = false }: CourseCardProps) {
-  const progressLabel = progress === 100 ? "Completed in demo" : `${progress}% demo progress`;
+  const progressLabel = progress === 100 ? "Terminé dans la démo" : `${progress} % de progression dans la démo`;
 
   return (
     <Link href={`/courses/${course.id}`} className={`lp-course-card ${compact ? "lp-course-card-compact" : ""}`}>
@@ -55,13 +55,13 @@ export default function CourseCard({ course, progress = 0, savedCount = 0, compa
       <div className="lp-course-card-body">
         <div className="lp-card-meta">
           <span>{course.category}</span>
-          <span>{course.lessons.length} lessons</span>
+          <span>{course.lessons.length} leçon{course.lessons.length === 1 ? "" : "s"}</span>
         </div>
         <h3>{course.title}</h3>
         {!compact && <p>{course.description}</p>}
         <div className="lp-course-card-footer">
-          <span>{totalMinutes(course)} min <em>sample</em></span>
-          {savedCount > 0 ? <span className="lp-saved-count">{savedCount} saved</span> : <span className="lp-demo-label">{progressLabel}</span>}
+          <span>{totalMinutes(course)} min <em>exemple</em></span>
+          {savedCount > 0 ? <span className="lp-saved-count">{savedCount} leçon{savedCount === 1 ? "" : "s"} enregistrée{savedCount === 1 ? "" : "s"}</span> : <span className="lp-demo-label">{progressLabel}</span>}
         </div>
         <div className="progress-track lp-card-progress" aria-label={progressLabel}>
           <span className="progress-fill" style={{ width: `${progress}%` }} />

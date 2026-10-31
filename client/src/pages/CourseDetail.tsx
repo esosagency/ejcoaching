@@ -20,24 +20,24 @@ export default function CourseDetail() {
 
   return (
     <div className="lp-page">
-      <nav className="lp-breadcrumb" aria-label="Breadcrumb">
-        <Link href="/courses">Library</Link><ChevronRight size={14} /><span>{course.title}</span>
+      <nav className="lp-breadcrumb" aria-label="Fil d’Ariane">
+        <Link href="/courses">Bibliothèque de cours</Link><ChevronRight size={14} /><span>{course.title}</span>
       </nav>
 
       <section className="lp-course-hero panel">
         <CourseArtwork course={course} className="lp-course-hero-art" />
         <div className="lp-course-hero-copy">
-          <div className="lp-course-hero-topline"><span className="lp-demo-badge">DEMO COURSE</span><span>{course.category}</span></div>
+          <div className="lp-course-hero-topline"><span className="lp-demo-badge">COURS D’EXEMPLE</span><span>{course.category}</span></div>
           <p className="eyebrow">{course.eyebrow}</p>
           <h1 className="page-title">{course.title}</h1>
           <p className="lp-lead">{course.description}</p>
           <div className="lp-course-facts">
-            <span><Layers3 size={16} /> {course.lessons.length} sample lessons</span>
-            <span><Clock3 size={16} /> {totalMinutes(course)} min catalogue runtime</span>
+            <span><Layers3 size={16} /> {course.lessons.length} leçon{course.lessons.length === 1 ? "" : "s"} d’exemple</span>
+            <span><Clock3 size={16} /> {totalMinutes(course)} min au total dans le catalogue</span>
           </div>
           <div className="lp-course-actions">
-            <Link href={`/learn/${course.id}/${lessonToOpen.id}`} className="btn primary"><Play size={16} fill="currentColor" /> {progress > 0 ? "Continue course" : "Start course"}</Link>
-            <span className="lp-browser-note">Interface demo · no live coaching video</span>
+            <Link href={`/learn/${course.id}/${lessonToOpen.id}`} className="btn primary"><Play size={16} fill="currentColor" /> {progress > 0 ? "Continuer le cours" : "Commencer le cours"}</Link>
+            <span className="lp-browser-note">Démo d’interface · pas de vidéo de coaching en direct</span>
           </div>
         </div>
       </section>
@@ -46,10 +46,10 @@ export default function CourseDetail() {
         <div>
           <div className="section-heading">
             <div>
-              <p className="eyebrow">YOUR COURSE OUTLINE</p>
-              <h2>Lessons to explore</h2>
+              <p className="eyebrow">PLAN DE TON COURS</p>
+              <h2>Leçons à explorer</h2>
             </div>
-            <span className="lp-demo-badge">SAMPLE CONTENT</span>
+            <span className="lp-demo-badge">CONTENU D’EXEMPLE</span>
           </div>
           <div className="lp-lesson-outline panel">
             {course.lessons.map((lesson, index) => {
@@ -68,15 +68,15 @@ export default function CourseDetail() {
 
         <aside className="lp-overview-card panel">
           <div className="lp-overview-icon"><Star size={19} fill="currentColor" /></div>
-          <p className="eyebrow">COURSE OVERVIEW</p>
-          <h3>A thoughtful starting point.</h3>
-          <p>This sample outline offers educational context—not individualized nutrition, training, or healthcare direction.</p>
+          <p className="eyebrow">APERÇU DU COURS</p>
+          <h3>Un point de départ réfléchi.</h3>
+          <p>Ce plan d’exemple offre un contexte éducatif, et non des directives personnalisées en matière de nutrition, d’entraînement ou de soins de santé.</p>
           <div className="lp-progress-readout">
-            <div><span>Demo progress</span><strong>{progress}%</strong></div>
+            <div><span>Progression de la démo</span><strong>{progress} %</strong></div>
             <div className="progress-track"><span className="progress-fill" style={{ width: `${progress}%` }} /></div>
-            <small>{completedCount} of {course.lessons.length} lessons marked complete in this browser.</small>
+            <small>{completedCount} leçon{completedCount === 1 ? "" : "s"} terminée{completedCount === 1 ? "" : "s"} sur {course.lessons.length} dans ce navigateur.</small>
           </div>
-          <p className="lp-callout">Use each lesson as a prompt for an informed conversation with your coach.</p>
+          <p className="lp-callout">Utilise chaque leçon comme point de départ pour une conversation éclairée avec ton coach.</p>
         </aside>
       </section>
     </div>

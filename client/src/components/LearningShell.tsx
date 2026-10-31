@@ -3,10 +3,10 @@ import { Link, useLocation } from 'wouter';
 import { ArrowUpRight, BookOpen, ChevronRight, GraduationCap, LayoutDashboard, Library, Menu, Search, Sparkles, X } from 'lucide-react';
 
 const navigation = [
-  { href: '/', label: 'Overview', icon: LayoutDashboard },
-  { href: '/courses', label: 'Course library', icon: Library },
-  { href: '/my-learning', label: 'My learning', icon: GraduationCap },
-  { href: '/resources', label: 'Resources', icon: BookOpen },
+  { href: '/', label: 'Tableau de bord', icon: LayoutDashboard },
+  { href: '/courses', label: 'Bibliothèque de cours', icon: Library },
+  { href: '/my-learning', label: 'Mon apprentissage', icon: GraduationCap },
+  { href: '/resources', label: 'Ressources', icon: BookOpen },
 ];
 
 export default function LearningShell({ children }: { children: ReactNode }) {
@@ -20,17 +20,17 @@ export default function LearningShell({ children }: { children: ReactNode }) {
     window.addEventListener('keydown', listener);
     return () => window.removeEventListener('keydown', listener);
   }, [helpOpen, mobileOpen]);
-  const activePage = location.startsWith('/learn') ? 'Video lesson' : location.startsWith('/courses/') ? 'Course overview' : navigation.find(item => item.href === location)?.label || 'Learning hub';
+  const activePage = location.startsWith('/learn') ? 'Leçon vidéo' : location.startsWith('/courses/') ? 'Aperçu du cours' : navigation.find(item => item.href === location)?.label || 'Espace d’apprentissage';
   return (
     <div className="learning-app">
-      {mobileOpen && <button className="sidebar-scrim" aria-label="Close navigation" onClick={() => setMobileOpen(false)} />}
-      <aside className={`learning-sidebar ${mobileOpen ? 'is-open' : ''}`} aria-label="Main navigation">
-        <Link href="/" className="brand-lockup" aria-label="EJ Coaching overview">
+      {mobileOpen && <button className="sidebar-scrim" aria-label="Fermer la navigation" onClick={() => setMobileOpen(false)} />}
+      <aside className={`learning-sidebar ${mobileOpen ? 'is-open' : ''}`} aria-label="Navigation principale">
+        <Link href="/" className="brand-lockup" aria-label="Tableau de bord EJ Coaching">
           <img src="/ej-mark.svg" alt="" width="42" height="42" />
-          <span><strong>EJ COACHING</strong><small>THE LEARNING HUB</small></span>
+          <span><strong>EJ COACHING</strong><small>ESPACE D’APPRENTISSAGE</small></span>
         </Link>
         <div className="sidebar-divider" />
-        <p className="nav-caption">YOUR WORKSPACE</p>
+        <p className="nav-caption">TON ESPACE</p>
         <nav className="sidebar-nav">
           {navigation.map(({ href, label, icon: Icon }) => {
             const active = href === '/' ? location === '/' : href === '/courses' ? location.startsWith('/courses') || location.startsWith('/learn') : location === href;
@@ -39,31 +39,31 @@ export default function LearningShell({ children }: { children: ReactNode }) {
         </nav>
         <div className="sidebar-encouragement">
           <span className="small-spark"><Sparkles size={19} /></span>
-          <strong>Small lessons.<br />Lasting confidence.</strong>
-          <p>Build your knowledge at your own pace.</p>
-          <Link href="/courses">Find your next lesson <ArrowUpRight size={15} /></Link>
+          <strong>Une leçon à la fois.<br />Plus de confiance.</strong>
+          <p>Développe tes connaissances à ton rythme.</p>
+          <Link href="/courses">Trouve ta prochaine leçon <ArrowUpRight size={15} /></Link>
         </div>
         <div className="sidebar-bottom">
-          <button className="preview-help" onClick={() => setHelpOpen(true)}><span className="status-dot" /> About this preview <ArrowUpRight size={14} /></button>
+          <button className="preview-help" onClick={() => setHelpOpen(true)}><span className="status-dot" /> À propos de cet aperçu <ArrowUpRight size={14} /></button>
           <p>© {new Date().getFullYear()} EJ Coaching</p>
         </div>
       </aside>
       <div className="workspace">
         <header className="workspace-header">
           <div className="header-left">
-            <button className="mobile-menu icon-button" aria-label="Open navigation" aria-expanded={mobileOpen} onClick={() => setMobileOpen(!mobileOpen)}><Menu size={22} /></button>
-            <span className="header-breadcrumb">Your workspace <ChevronRight size={13} /><strong>{activePage}</strong></span>
+            <button className="mobile-menu icon-button" aria-label="Ouvrir la navigation" aria-expanded={mobileOpen} onClick={() => setMobileOpen(!mobileOpen)}><Menu size={22} /></button>
+            <span className="header-breadcrumb">Ton espace <ChevronRight size={13} /><strong>{activePage}</strong></span>
           </div>
           <div className="header-right">
-            <Link className="header-search" href="/courses"><Search size={16} /><span>Find a course</span><span className="search-shortcut">↗</span></Link>
-            <span className="preview-badge">DESIGN PREVIEW</span>
-            <div className="preview-profile" title="Sample client view. No real account is connected."><span className="profile-monogram">EJ</span><span>Client preview<small>Learning workspace</small></span></div>
+            <Link className="header-search" href="/courses"><Search size={16} /><span>Trouver un cours</span><span className="search-shortcut">↗</span></Link>
+            <span className="preview-badge">APERÇU DU DESIGN</span>
+            <div className="preview-profile" title="Aperçu du côté client. Aucun compte réel n’est connecté."><span className="profile-monogram">EJ</span><span>Aperçu client<small>Espace d’apprentissage</small></span></div>
           </div>
         </header>
         <main className="page-content" id="main-content">{children}</main>
-        <footer className="workspace-footer"><span>Built around your journey.</span><span>Sample content · Browser-only demo progress</span></footer>
+        <footer className="workspace-footer"><span>Pensé pour ton parcours.</span><span>Contenu d’exemple · Progression enregistrée dans ce navigateur</span></footer>
       </div>
-      {helpOpen && <div className="preview-modal-backdrop" onClick={() => setHelpOpen(false)}><section className="preview-modal panel" role="dialog" aria-modal="true" aria-labelledby="preview-title" onClick={event => event.stopPropagation()}><button autoFocus className="icon-button modal-close" aria-label="Close preview information" onClick={() => setHelpOpen(false)}><X size={21} /></button><img src="/ej-mark.svg" alt="" width="48" height="48" /><p className="eyebrow">A FIRST LOOK AT EJ COACHING</p><h2 id="preview-title">Your platform, taking shape.</h2><p>This is a clickable design prototype. Course outlines, durations, and artwork are samples. The video player uses a 12-second silent interface demo—not an EJ Coaching lesson.</p><p>Completion, bookmarks, and notes are saved only in this browser. Real client accounts, creator videos, and uploads are not connected yet.</p><button className="btn primary" onClick={() => setHelpOpen(false)}>Explore the preview <ArrowUpRight size={16} /></button></section></div>}
+      {helpOpen && <div className="preview-modal-backdrop" onClick={() => setHelpOpen(false)}><section className="preview-modal panel" role="dialog" aria-modal="true" aria-labelledby="preview-title" onClick={event => event.stopPropagation()}><button autoFocus className="icon-button modal-close" aria-label="Fermer les renseignements sur l’aperçu" onClick={() => setHelpOpen(false)}><X size={21} /></button><img src="/ej-mark.svg" alt="" width="48" height="48" /><p className="eyebrow">UN PREMIER APERÇU D’EJ COACHING</p><h2 id="preview-title">Ta plateforme prend forme.</h2><p>Ceci est un prototype interactif. Les plans de cours, les durées et les visuels sont des exemples. Le lecteur utilise une démo d’interface silencieuse de 12 secondes, et non une leçon d’EJ Coaching.</p><p>Ta progression, tes leçons enregistrées et tes notes restent dans ce navigateur seulement. Les vrais comptes clients, tes vidéos et les téléversements ne sont pas encore connectés.</p><button className="btn primary" onClick={() => setHelpOpen(false)}>Explorer l’aperçu <ArrowUpRight size={16} /></button></section></div>}
     </div>
   );
 }

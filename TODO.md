@@ -8,3 +8,10 @@
 - [x] Prototype version prepared with route manifest and durable platform logo. Real creator video hosting and upload workflows remain future work; no real accounts or database are included in this design prototype. Future Video Hosting is selected as a later capability, not a current upload workflow. Future Client Learning Records is not selected.
 
 Evidence: TypeScript check and static production build pass. All nine tests pass. Preview root, route manifest, and demo media respond HTTP 200. The 12-second H.264 silent demo clip decodes successfully. A read-only source review verified requirements and found a duplicate inner main/padding issue; corrected across all five affected pages. Native video controls remain unobstructed by the demo label. Course imagery uses original managed generation asset URLs, with automatic completion/replacement controlled by managed storage. No browser acceptance pass or real client account testing was performed.
+
+## Adaptation en français québécois
+
+- [x] Adapter tous les textes de l’interface, les cours et les leçons d’exemple en français québécois naturel avec tutoiement, en conservant le nom EJ Coaching, le design, les liens, les identifiants et les fonctionnalités existantes. Traduire les menus, boutons, états vides, libellés accessibles, notes de démonstration et ressources téléchargeables.
+- [x] Définir la langue du document à fr-CA, traduire les métadonnées et les titres de navigation de l’aperçu, et remplacer les textes anglais de la courte vidéo de démonstration par leurs équivalents français. Préserver les progrès et notes déjà enregistrés dans le navigateur.
+
+Vérifications : les dix tests, la vérification TypeScript et la compilation de production passent. Les catégories françaises sont vérifiées, les identifiants et les clés de stockage restent inchangés. L’aperçu et la vidéo française répondent HTTP 200; le clip silencieux de 12 secondes se décode correctement. Les ressources téléchargeables et leurs noms sont français. Les ajustements visuels sont limités au sous-titre de marque et au défilement du panneau d’information.
