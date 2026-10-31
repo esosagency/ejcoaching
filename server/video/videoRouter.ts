@@ -6,7 +6,11 @@ import {
 } from "../../shared/phoneVideo";
 import { adminProcedure, router } from "../_core/trpc";
 import { idSchema, revisionSchema } from "../contentValidation";
-import { prepareStoredPut, verifyStoredSource } from "./mediaStorage";
+import {
+  preparePrivateMedia,
+  preparePrivatePart,
+  verifyPrivateStoredMedia,
+} from "../privateMediaStorage";
 import {
   VideoJobConflictError,
   VideoJobDatabaseUnavailableError,
@@ -19,6 +23,7 @@ import {
   getOwnedVideoJobSource,
   queueVerifiedVideoJob,
   retryFailedVideoJob,
+  touchUploadingVideoJob,
 } from "./videoDb";
 import { kickVideoWorker } from "./videoWorker";
 
@@ -100,10 +105,15 @@ export const videoRouter = router({
         createPhoneVideoJob(ctx.user.id, { ...input, contentType })
       );
       try {
-        const uploadUrl = await prepareStoredPut(prepared.sourceObjectKey);
+        const encryption = await preparePrivateMedia(
+          prepared.sourceObjectKey,
+          input.size,
+          contentType,
+          "parts"
+        );
         return {
           jobId: prepared.jobId,
-          uploadUrl,
+          encryption,
           contentType,
           lessonRevision: prepared.lessonRevision,
         };
@@ -116,6 +126,38 @@ export const videoRouter = router({
       }
     }),
 
+  preparePart: adminProcedure
+    .input(
+      z
+        .object({ id: idSchema, index: z.number().int().min(0).max(127) })
+        .strict()
+    )
+    .mutation(async ({ ctx, input }) => {
+      const source = await executeVideo(() =>
+        getOwnedVideoJobSource(input.id, ctx.user.id)
+      );
+      if (source.status !== "uploading")
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "Ce téléversement ne peut plus recevoir de parties.",
+        });
+      if (
+        !(await executeVideo(() =>
+          touchUploadingVideoJob(input.id, ctx.user.id)
+        ))
+      )
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            "Le transfert a expiré ou a été annulé. Choisis de nouveau la vidéo.",
+        });
+      return {
+        uploadUrl: await executeVideo(() =>
+          preparePrivatePart(source.sourceObjectKey, input.index)
+        ),
+      };
+    }),
+
   finish: adminProcedure
     .input(z.object({ id: idSchema }).strict())
     .mutation(async ({ ctx, input }) => {
@@ -125,11 +167,11 @@ export const videoRouter = router({
 
       if (source.status === "uploading") {
         await executeVideo(() =>
-          verifyStoredSource({
-            objectKey: source.sourceObjectKey,
-            size: source.sourceSize,
-            contentType: source.sourceContentType,
-          })
+          verifyPrivateStoredMedia(
+            source.sourceObjectKey,
+            source.sourceSize,
+            source.sourceContentType
+          )
         );
         await executeVideo(() => queueVerifiedVideoJob(input.id, ctx.user.id));
       }

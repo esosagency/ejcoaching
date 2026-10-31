@@ -6,7 +6,12 @@ import {
   MAX_PHONE_VIDEO_SECONDS,
 } from "../../shared/phoneVideo";
 import { convertPhoneVideo, MediaProcessorError } from "./mediaProcessor";
-import { downloadStoredVideo, uploadStoredFile, MediaStorageError } from "./mediaStorage";
+import { MediaStorageError } from "./mediaStorage";
+import {
+  downloadPrivateSource,
+  uploadPrivateLocalFile,
+  PrivateMediaError,
+} from "../privateMediaStorage";
 import {
   cancelObsoleteClaimedVideoJob,
   claimNextVideoJob,
@@ -134,7 +139,7 @@ async function processClaim(job: ClaimedVideoJob): Promise<void> {
     const outputDirectory = join(jobDirectory, "output");
     await mkdir(outputDirectory, { recursive: true });
 
-    await downloadStoredVideo(
+    await downloadPrivateSource(
       job.sourceObjectKey,
       sourcePath,
       job.sourceSize,
@@ -178,13 +183,13 @@ async function processClaim(job: ClaimedVideoJob): Promise<void> {
 
     const outputKeys = newVideoOutputObjectKeys(job.jobId);
     const [uploadedVideo, uploadedPoster] = await Promise.all([
-      uploadStoredFile(
+      uploadPrivateLocalFile(
         outputKeys.videoKey,
         converted.videoPath,
         "video/mp4",
         signal
       ),
-      uploadStoredFile(
+      uploadPrivateLocalFile(
         outputKeys.posterKey,
         converted.posterPath,
         "image/jpeg",
@@ -216,12 +221,17 @@ async function processClaim(job: ClaimedVideoJob): Promise<void> {
   } catch (error) {
     if (!isAbortError(error, signal)) {
       // Only a bounded, French-safe message is durable; no storage URL/error is logged.
-      const safeMessage = error instanceof MediaProcessorError || error instanceof MediaStorageError
-        ? error.message
-        : undefined;
-      await failClaimedVideoJob(job.jobId, job.leaseToken, safeMessage).catch(() => {
-        // Lease recovery will safely reclaim an interrupted processing row.
-      });
+      const safeMessage =
+        error instanceof MediaProcessorError ||
+        error instanceof MediaStorageError ||
+        error instanceof PrivateMediaError
+          ? error.message
+          : undefined;
+      await failClaimedVideoJob(job.jobId, job.leaseToken, safeMessage).catch(
+        () => {
+          // Lease recovery will safely reclaim an interrupted processing row.
+        }
+      );
     }
   } finally {
     clearInterval(heartbeatTimer);

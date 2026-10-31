@@ -170,9 +170,14 @@ function toCourse(
 
 async function getCoursesWithLessons(options: {
   publishedOnly: boolean;
+  courseIds?: string[];
 }): Promise<Course[]> {
   const db = await requireDb();
   const courseConditions = [isNull(contentCourses.archivedAt)];
+  if (options.courseIds) {
+    if (!options.courseIds.length) return [];
+    courseConditions.push(inArray(contentCourses.id, options.courseIds));
+  }
   if (options.publishedOnly)
     courseConditions.push(eq(contentCourses.status, "published"));
 
@@ -232,6 +237,11 @@ async function getCoursesWithLessons(options: {
 /** Public catalogue: only non-archived published courses and non-archived lessons. */
 export function listPublicCourses(): Promise<Course[]> {
   return getCoursesWithLessons({ publishedOnly: true });
+}
+
+/** Member catalog IDs have already been checked against live approval/assignments. */
+export function listAccessibleCourses(courseIds: string[]): Promise<Course[]> {
+  return getCoursesWithLessons({ publishedOnly: true, courseIds });
 }
 
 /** Admin list: non-archived drafts and published courses with non-archived lessons. */
@@ -477,29 +487,44 @@ export async function archiveCourse(
       await assertCourseRevisionState(tx, id);
       return;
     }
-    await tx.update(contentVideoJobs).set({
-      status: "cancelled",
-      leaseToken: null,
-      leaseExpiresAt: null,
-      lastHeartbeatAt: null,
-      finishedAt: now,
-      updatedAt: now,
-    }).where(and(
-      inArray(contentVideoJobs.status, ["uploading", "queued", "processing", "failed"]),
-      sql`exists (
+    await tx
+      .update(contentVideoJobs)
+      .set({
+        status: "cancelled",
+        leaseToken: null,
+        leaseExpiresAt: null,
+        lastHeartbeatAt: null,
+        finishedAt: now,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          inArray(contentVideoJobs.status, [
+            "uploading",
+            "queued",
+            "processing",
+            "failed",
+          ]),
+          sql`exists (
         select 1 from ${contentLessons}
         where ${contentLessons.id} = ${contentVideoJobs.lessonId}
           and ${contentLessons.courseId} = ${id}
       )`
-    ));
-    await tx.update(contentLessons).set({
-      videoJobId: null,
-      revision: sql`${contentLessons.revision} + 1`,
-      updatedAt: now,
-    }).where(and(
-      eq(contentLessons.courseId, id),
-      sql`${contentLessons.videoJobId} is not null`
-    ));
+        )
+      );
+    await tx
+      .update(contentLessons)
+      .set({
+        videoJobId: null,
+        revision: sql`${contentLessons.revision} + 1`,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(contentLessons.courseId, id),
+          sql`${contentLessons.videoJobId} is not null`
+        )
+      );
   });
 }
 
@@ -662,17 +687,27 @@ export async function archiveLesson(
       await assertLessonRevisionState(tx, courseId, id);
       return;
     }
-    await tx.update(contentVideoJobs).set({
-      status: "cancelled",
-      leaseToken: null,
-      leaseExpiresAt: null,
-      lastHeartbeatAt: null,
-      finishedAt: now,
-      updatedAt: now,
-    }).where(and(
-      eq(contentVideoJobs.lessonId, id),
-      inArray(contentVideoJobs.status, ["uploading", "queued", "processing", "failed"])
-    ));
+    await tx
+      .update(contentVideoJobs)
+      .set({
+        status: "cancelled",
+        leaseToken: null,
+        leaseExpiresAt: null,
+        lastHeartbeatAt: null,
+        finishedAt: now,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(contentVideoJobs.lessonId, id),
+          inArray(contentVideoJobs.status, [
+            "uploading",
+            "queued",
+            "processing",
+            "failed",
+          ])
+        )
+      );
   });
 }
 

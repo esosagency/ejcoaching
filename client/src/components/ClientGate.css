@@ -1,0 +1,119 @@
+/* Access states outside the learning shell. */
+.client-gate {
+  display: flex;
+  max-width: 590px;
+  flex-direction: column;
+  align-items: flex-start;
+  margin: 72px auto;
+  padding: clamp(26px, 5vw, 40px);
+}
+.client-gate .eyebrow {
+  margin: 23px 0 12px;
+  font-size: 9px;
+}
+.client-gate h1 {
+  max-width: 480px;
+  margin: 0 0 11px;
+  font-size: clamp(25px, 4vw, 31px);
+  line-height: 1.16;
+}
+.client-gate .muted {
+  max-width: 485px;
+  font-size: 13px;
+  line-height: 1.72;
+}
+.client-gate > .btn {
+  min-height: 44px;
+  margin-top: 24px;
+}
+.client-gate-icon {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border: 1px solid rgba(183, 160, 255, 0.4);
+  border-radius: 14px;
+  background: rgba(138, 102, 239, 0.14);
+  color: #cbb8ff;
+}
+.client-gate-icon.is-error {
+  border-color: rgba(241, 121, 136, 0.38);
+  background: rgba(241, 121, 136, 0.11);
+  color: #f4a1ad;
+}
+.client-gate-spinner {
+  width: 29px;
+  height: 29px;
+  border: 2px solid #393249;
+  border-top-color: #bca4ff;
+  border-radius: 50%;
+  animation: client-gate-spin 0.8s linear infinite;
+}
+.client-gate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 24px;
+}
+.client-gate-actions .btn,
+.client-gate-logout {
+  min-height: 44px;
+}
+.client-gate-logout {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  color: #b9b5c7;
+  padding: 10px 5px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.client-gate-logout:hover {
+  color: #eeeaf6;
+}
+.client-gate-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  margin: 18px 0 0;
+  border: 1px solid rgba(241, 121, 136, 0.33);
+  border-radius: 9px;
+  background: rgba(190, 64, 83, 0.1);
+  color: #f2a7b1;
+  padding: 10px 11px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.client-gate-error svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+@keyframes client-gate-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (max-width: 600px) {
+  .client-gate {
+    margin: 34px auto;
+  }
+  .client-gate-actions {
+    align-items: stretch;
+    flex-direction: column;
+    width: 100%;
+  }
+  .client-gate-actions .btn,
+  .client-gate-logout {
+    justify-content: center;
+    width: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .client-gate-spinner {
+    animation: none;
+  }
+}

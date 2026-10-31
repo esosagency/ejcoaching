@@ -30,6 +30,7 @@ import type {
 } from "@shared/content";
 import type { VideoJobInfo } from "@shared/phoneVideo";
 import { parseVimeoUrl } from "@shared/vimeo";
+import { encryptPrivateDocument } from "@shared/privateMedia";
 import AdminGate from "@/components/AdminGate";
 import PhoneVideoUpload from "@/components/admin/PhoneVideoUpload";
 import { trpc } from "@/lib/trpc";
@@ -206,7 +207,7 @@ function toFriendlyError(error: unknown, fallback: string) {
 
 function putFile(
   uploadUrl: string,
-  file: File,
+  file: Blob,
   contentType: string,
   onProgress: (progress: number) => void
 ): Promise<void> {
@@ -415,21 +416,21 @@ function EditorContent() {
 
   const reconcilePhoneVideoLesson = useCallback(
     async (readyJob?: VideoJobInfo) => {
-    const refreshed = await refreshCourse();
-    const refreshedLesson = refreshed?.lessons.find(
-      lesson => lesson.id === selectedLessonId
-    );
-    if (!refreshedLesson) {
-      throw new Error("La leçon n’a pas pu être actualisée.");
-    }
-    if (
-      readyJob?.videoUrl &&
-      (refreshedLesson.videoUrl !== readyJob.videoUrl ||
-        refreshedLesson.videoType !== "file")
-    ) {
-      throw new Error("La vidéo prête n’est pas encore associée à la leçon.");
-    }
-    setLessonForm(asLessonInput(refreshedLesson));
+      const refreshed = await refreshCourse();
+      const refreshedLesson = refreshed?.lessons.find(
+        lesson => lesson.id === selectedLessonId
+      );
+      if (!refreshedLesson) {
+        throw new Error("La leçon n’a pas pu être actualisée.");
+      }
+      if (
+        readyJob?.videoUrl &&
+        (refreshedLesson.videoUrl !== readyJob.videoUrl ||
+          refreshedLesson.videoType !== "file")
+      ) {
+        throw new Error("La vidéo prête n’est pas encore associée à la leçon.");
+      }
+      setLessonForm(asLessonInput(refreshedLesson));
     },
     [refreshCourse, selectedLessonId]
   );
@@ -469,8 +470,14 @@ function EditorContent() {
         size: file.size,
         kind,
       });
-      await putFile(prepared.uploadUrl, file, contentType, progress =>
-        setUploadState({ target, progress, label: file.name })
+      const bytes = prepared.encryption
+        ? await encryptPrivateDocument(file, prepared.encryption)
+        : file;
+      await putFile(
+        prepared.uploadUrl,
+        bytes,
+        prepared.encryption ? "application/octet-stream" : contentType,
+        progress => setUploadState({ target, progress, label: file.name })
       );
       setUploadState({ target, progress: 100, label: file.name });
       return await finishUpload.mutateAsync({ id: prepared.id });
@@ -1446,7 +1453,15 @@ function EditorContent() {
                     {lessonForm.resources.map(resource => (
                       <li className="admin-resource-row" key={resource.id}>
                         <FileText size={15} />
-                        <a href={resource.url} target="_blank" rel="noreferrer">
+                        <a
+                          href={
+                            resource.url.startsWith("/manus-storage/")
+                              ? `/api/admin/private-file?key=${encodeURIComponent(resource.url.slice("/manus-storage/".length))}`
+                              : resource.url
+                          }
+                          target="_blank"
+                          rel="noreferrer"
+                        >
                           <strong>{resource.title}</strong>
                           <span>{resource.filename ?? resource.url}</span>
                         </a>

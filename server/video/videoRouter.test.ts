@@ -1,41 +1,32 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "../_core/context";
 
-const videoDbMock = vi.hoisted(() => {
-  class MockVideoJobNotFoundError extends Error {}
-  class MockVideoJobConflictError extends Error {}
-  class MockVideoJobValidationError extends Error {}
-  class MockVideoJobDatabaseUnavailableError extends Error {}
-  return {
-    VideoJobNotFoundError: MockVideoJobNotFoundError,
-    VideoJobConflictError: MockVideoJobConflictError,
-    VideoJobValidationError: MockVideoJobValidationError,
-    VideoJobDatabaseUnavailableError: MockVideoJobDatabaseUnavailableError,
-    abandonVideoPreparation: vi.fn(),
-    cancelVideoJob: vi.fn(),
-    createPhoneVideoJob: vi.fn(),
-    getOwnedVideoJobInfo: vi.fn(),
-    getOwnedVideoJobSource: vi.fn(),
-    queueVerifiedVideoJob: vi.fn(),
-    retryFailedVideoJob: vi.fn(),
-  };
-});
+const videoDbMock = vi.hoisted(() => ({
+  VideoJobNotFoundError: class extends Error {},
+  VideoJobConflictError: class extends Error {},
+  VideoJobValidationError: class extends Error {},
+  VideoJobDatabaseUnavailableError: class extends Error {},
+  abandonVideoPreparation: vi.fn(),
+  cancelVideoJob: vi.fn(),
+  createPhoneVideoJob: vi.fn(),
+  getOwnedVideoJobInfo: vi.fn(),
+  getOwnedVideoJobSource: vi.fn(),
+  queueVerifiedVideoJob: vi.fn(),
+  retryFailedVideoJob: vi.fn(),
+  touchUploadingVideoJob: vi.fn(),
+}));
 const storageMock = vi.hoisted(() => ({
-  prepareStoredPut: vi.fn(),
-  verifyStoredSource: vi.fn(),
+  preparePrivateMedia: vi.fn(),
+  preparePrivatePart: vi.fn(),
+  verifyPrivateStoredMedia: vi.fn(),
 }));
 const workerMock = vi.hoisted(() => ({ kickVideoWorker: vi.fn() }));
-
 vi.mock("./videoDb", () => videoDbMock);
-vi.mock("./mediaStorage", () => storageMock);
+vi.mock("../privateMediaStorage", () => storageMock);
 vi.mock("./videoWorker", () => workerMock);
-
 import { videoRouter } from "./videoRouter";
-
 const now = new Date();
-type TestUser = NonNullable<TrpcContext["user"]>;
-
-function user(role: "user" | "admin"): TestUser {
+function user(role: "user" | "admin"): NonNullable<TrpcContext["user"]> {
   return {
     id: role === "admin" ? 71 : 72,
     openId: `video-${role}`,
@@ -48,44 +39,46 @@ function user(role: "user" | "admin"): TestUser {
     lastSignedIn: now,
   };
 }
-
-function context(currentUser: TestUser | null): TrpcContext {
+function context(currentUser: TrpcContext["user"]): TrpcContext {
   return {
     user: currentUser,
     req: { headers: {}, protocol: "https" } as TrpcContext["req"],
     res: {} as TrpcContext["res"],
   };
 }
-
-beforeEach(() => {
-  vi.clearAllMocks();
-});
-
-describe("videoRouter authorization and redaction", () => {
-  it("uses the real adminProcedure rather than trusting a caller-provided role", async () => {
+beforeEach(() => vi.clearAllMocks());
+describe("encrypted phone router authorization and redaction", () => {
+  it("denies non-admin preparation before any storage or job side effect", async () => {
     const caller = videoRouter.createCaller(context(user("user")));
     await expect(
       caller.prepare({
         lessonId: "lesson1",
         revision: 1,
         filename: "clip.mov",
-        contentType: "video/quicktime",
         size: 100,
       })
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
+      caller.preparePart({ id: "job1", index: 0 })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(videoDbMock.createPhoneVideoJob).not.toHaveBeenCalled();
+    expect(storageMock.preparePrivateMedia).not.toHaveBeenCalled();
   });
-
-  it("infers blank iOS MIME, creates an owned job, and returns only the required PUT data", async () => {
+  it("infers iOS MIME and returns a source-only encryption descriptor to the owner", async () => {
     videoDbMock.createPhoneVideoJob.mockResolvedValue({
       jobId: "job1",
-      sourceObjectKey: "phone-video/source/random.mov",
+      sourceObjectKey: "test/source.mov",
       lessonRevision: 8,
     });
-    storageMock.prepareStoredPut.mockResolvedValue(
-      "https://signed.example/put"
-    );
-
+    const descriptor = {
+      id: "fixture-source",
+      keyBase64: "fixture-only-key",
+      nonceBase64: "fixture-only-nonce",
+      plainSize: 100,
+      chunkSize: 8388608,
+      contentType: "video/quicktime",
+    };
+    storageMock.preparePrivateMedia.mockResolvedValue(descriptor);
     const result = await videoRouter
       .createCaller(context(user("admin")))
       .prepare({
@@ -94,27 +87,55 @@ describe("videoRouter authorization and redaction", () => {
         filename: "IMG_1234.MOV",
         size: 100,
       });
-
     expect(videoDbMock.createPhoneVideoJob).toHaveBeenCalledWith(
       71,
       expect.objectContaining({ contentType: "video/quicktime" })
     );
-    expect(result).toEqual({
-      jobId: "job1",
-      uploadUrl: "https://signed.example/put",
-      contentType: "video/quicktime",
-      lessonRevision: 8,
-    });
+    expect(storageMock.preparePrivateMedia).toHaveBeenCalledWith(
+      "test/source.mov",
+      100,
+      "video/quicktime",
+      "parts"
+    );
+    expect(result.jobId).toBe("job1");
+    expect(result.encryption).toBe(descriptor);
+    expect(result).not.toHaveProperty("sourceObjectKey");
   });
-
-  it("never returns source metadata from finish even though verification receives it", async () => {
+  it("presigns only parts of an owned uploading job", async () => {
     videoDbMock.getOwnedVideoJobSource.mockResolvedValue({
       status: "uploading",
-      sourceObjectKey: "phone-video/source/private.mov",
+      sourceObjectKey: "test/source.mov",
+    });
+    videoDbMock.touchUploadingVideoJob.mockResolvedValue(true);
+    storageMock.preparePrivatePart.mockResolvedValue(
+      "https://fixture.example/put"
+    );
+    await videoRouter
+      .createCaller(context(user("admin")))
+      .preparePart({ id: "job1", index: 0 });
+    expect(videoDbMock.getOwnedVideoJobSource).toHaveBeenCalledWith("job1", 71);
+    expect(storageMock.preparePrivatePart).toHaveBeenCalledWith(
+      "test/source.mov",
+      0
+    );
+    videoDbMock.getOwnedVideoJobSource.mockResolvedValue({
+      status: "cancelled",
+      sourceObjectKey: "test/source.mov",
+    });
+    await expect(
+      videoRouter
+        .createCaller(context(user("admin")))
+        .preparePart({ id: "job1", index: 0 })
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+  it("verifies encrypted parts before queueing and returns no keys or source metadata", async () => {
+    videoDbMock.getOwnedVideoJobSource.mockResolvedValue({
+      status: "uploading",
+      sourceObjectKey: "test/source.mov",
       sourceSize: 100,
       sourceContentType: "video/quicktime",
     });
-    storageMock.verifyStoredSource.mockResolvedValue(undefined);
+    storageMock.verifyPrivateStoredMedia.mockResolvedValue(undefined);
     videoDbMock.queueVerifiedVideoJob.mockResolvedValue(undefined);
     videoDbMock.getOwnedVideoJobInfo.mockResolvedValue({
       id: "job1",
@@ -123,18 +144,16 @@ describe("videoRouter authorization and redaction", () => {
       progress: 0,
       filename: "private.mov",
     });
-
     const result = await videoRouter
       .createCaller(context(user("admin")))
       .finish({ id: "job1" });
-
-    expect(storageMock.verifyStoredSource).toHaveBeenCalledWith({
-      objectKey: "phone-video/source/private.mov",
-      size: 100,
-      contentType: "video/quicktime",
-    });
+    expect(storageMock.verifyPrivateStoredMedia).toHaveBeenCalledWith(
+      "test/source.mov",
+      100,
+      "video/quicktime"
+    );
     expect(result).not.toHaveProperty("sourceObjectKey");
-    expect(JSON.stringify(result)).not.toContain("phone-video/source");
+    expect(result).not.toHaveProperty("encryption");
     expect(workerMock.kickVideoWorker).toHaveBeenCalledOnce();
   });
 });

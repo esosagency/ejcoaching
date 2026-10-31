@@ -668,10 +668,78 @@ export async function cancelVideoJob(
   });
 }
 
-/** Moves exhausted leases to failure; jobs below the bound are reclaimable. */
+/** Authenticated activity keeps a slow direct upload live without changing lesson text. */
+export async function touchUploadingVideoJob(
+  id: string,
+  ownerUserId: number
+): Promise<boolean> {
+  const db = await requireDb();
+  const result = await db
+    .update(contentVideoJobs)
+    .set({ updatedAt: new Date() })
+    .where(
+      and(
+        eq(contentVideoJobs.id, id),
+        eq(contentVideoJobs.ownerUserId, ownerUserId),
+        eq(contentVideoJobs.status, "uploading")
+      )
+    );
+  return affectedRows(result) === 1;
+}
+
+/** Abandoned source transfers expire; processing jobs remain lease-recoverable. */
 export async function recoverExpiredVideoJobs(): Promise<void> {
   const db = await requireDb();
   const now = new Date();
+  const uploadCutoff = new Date(now.getTime() - 60 * 60_000);
+  await db.transaction(async tx => {
+    const abandoned = await tx
+      .select({ id: contentVideoJobs.id, lessonId: contentVideoJobs.lessonId })
+      .from(contentVideoJobs)
+      .where(
+        and(
+          eq(contentVideoJobs.status, "uploading"),
+          lt(contentVideoJobs.updatedAt, uploadCutoff)
+        )
+      )
+      .limit(100);
+    for (const job of abandoned) {
+      const expired = await tx
+        .update(contentVideoJobs)
+        .set({
+          status: "cancelled",
+          error:
+            "Le transfert a expiré. Choisis de nouveau la vidéo pour recommencer.",
+          leaseToken: null,
+          leaseExpiresAt: null,
+          lastHeartbeatAt: null,
+          finishedAt: now,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(contentVideoJobs.id, job.id),
+            eq(contentVideoJobs.status, "uploading"),
+            lt(contentVideoJobs.updatedAt, uploadCutoff)
+          )
+        );
+      if (affectedRows(expired) !== 1) continue;
+      await tx
+        .update(contentLessons)
+        .set({
+          videoJobId: null,
+          revision: sql`${contentLessons.revision} + 1`,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(contentLessons.id, job.lessonId),
+            eq(contentLessons.videoJobId, job.id),
+            isNull(contentLessons.archivedAt)
+          )
+        );
+    }
+  });
   await db
     .update(contentVideoJobs)
     .set({
@@ -682,10 +750,12 @@ export async function recoverExpiredVideoJobs(): Promise<void> {
       finishedAt: now,
       updatedAt: now,
     })
-    .where(and(
-      inArray(contentVideoJobs.status, ACTIVE_JOB_STATUSES),
-      sql`not (${activeLessonForJobSql()})`
-    ));
+    .where(
+      and(
+        inArray(contentVideoJobs.status, ACTIVE_JOB_STATUSES),
+        sql`not (${activeLessonForJobSql()})`
+      )
+    );
   await db
     .update(contentVideoJobs)
     .set({
@@ -831,19 +901,24 @@ export async function cancelObsoleteClaimedVideoJob(
 ): Promise<void> {
   const db = await requireDb();
   const now = new Date();
-  await db.update(contentVideoJobs).set({
-    status: "cancelled",
-    leaseToken: null,
-    leaseExpiresAt: null,
-    lastHeartbeatAt: null,
-    finishedAt: now,
-    updatedAt: now,
-  }).where(and(
-    eq(contentVideoJobs.id, id),
-    eq(contentVideoJobs.status, "processing"),
-    eq(contentVideoJobs.leaseToken, leaseToken),
-    sql`not (${activeLessonForJobSql()})`
-  ));
+  await db
+    .update(contentVideoJobs)
+    .set({
+      status: "cancelled",
+      leaseToken: null,
+      leaseExpiresAt: null,
+      lastHeartbeatAt: null,
+      finishedAt: now,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(contentVideoJobs.id, id),
+        eq(contentVideoJobs.status, "processing"),
+        eq(contentVideoJobs.leaseToken, leaseToken),
+        sql`not (${activeLessonForJobSql()})`
+      )
+    );
 }
 
 /** Requeues a fenced claim up to the bounded attempt count, then leaves a safe French error. */

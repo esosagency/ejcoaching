@@ -17,14 +17,18 @@ import { Link, useLocation, useParams } from "wouter";
 import { getVimeoEmbedUrl } from "@shared/vimeo";
 import { useCatalog } from "@/contexts/CatalogContext";
 import { useLearning } from "@/contexts/LearningContext";
+import { useAccess } from "@/contexts/AccessContext";
+import { accountStorageKey, readAccountStorage } from "@/lib/accountStorage";
 import NotFound from "@/pages/NotFound";
 import "./LearningPages.css";
 
 type LessonTab = "overview" | "notes" | "resources";
 
-function readNotes(key: string) {
+function readNotes(key: string, legacy?: string, owner = false) {
   try {
-    return typeof window === "undefined" ? "" : localStorage.getItem(key) || "";
+    return typeof window === "undefined"
+      ? ""
+      : readAccountStorage(key, legacy, owner) || "";
   } catch {
     return "";
   }
@@ -118,15 +122,22 @@ export default function Lesson() {
   const [controlsVisible, setControlsVisible] = useState(false);
   const [videoError, setVideoError] = useState(false);
   const [activeTab, setActiveTab] = useState<LessonTab>("overview");
-  const notesKey = `ej-demo-notes-${lessonId || "unknown"}`;
-  const [notes, setNotes] = useState(() => readNotes(notesKey));
+  const { access } = useAccess();
+  const notesKey = accountStorageKey(
+    access?.user?.id,
+    `notes-${lessonId || "unknown"}`
+  );
+  const legacyNotesKey = `ej-demo-notes-${lessonId || "unknown"}`;
+  const [notes, setNotes] = useState(() =>
+    readNotes(notesKey, legacyNotesKey, Boolean(access?.isAdmin))
+  );
 
   useEffect(() => {
     if (lesson && !isAdminPreview) visitLesson(lesson.id);
   }, [isAdminPreview, lesson?.id, visitLesson]);
 
   useEffect(() => {
-    setNotes(readNotes(notesKey));
+    setNotes(readNotes(notesKey, legacyNotesKey, Boolean(access?.isAdmin)));
     setControlsVisible(false);
     setActiveTab("overview");
   }, [notesKey]);
@@ -325,13 +336,18 @@ export default function Lesson() {
                     onClick={startVideo}
                     aria-label={`Lire la leçon : ${lesson.title}`}
                   >
-                    <span><Play size={24} fill="currentColor" /></span>
+                    <span>
+                      <Play size={24} fill="currentColor" />
+                    </span>
                     <strong>Lire la leçon</strong>
                   </button>
                 )}
                 {videoError && (
                   <div className="lp-resource-tab lp-video-state" role="alert">
-                    <p>La vidéo n’a pas pu être chargée. Vérifie ta connexion et réessaie.</p>
+                    <p>
+                      La vidéo n’a pas pu être chargée. Vérifie ta connexion et
+                      réessaie.
+                    </p>
                     <button
                       className="btn secondary"
                       type="button"

@@ -18,6 +18,11 @@ import {
   isPhoneVideoStatusActive,
 } from "@shared/phoneVideo";
 import type { VideoJobInfo, VideoJobStatus } from "@shared/phoneVideo";
+import {
+  encryptPrivateFileChunk,
+  privateChunkCount,
+  privatePlainChunkSize,
+} from "@shared/privateMedia";
 import { trpc } from "@/lib/trpc";
 import "./PhoneVideoUpload.css";
 
@@ -89,7 +94,7 @@ function getFileDuration(file: File): Promise<number | null> {
 
 function createPutRequest(
   uploadUrl: string,
-  file: File,
+  file: Blob,
   contentType: string,
   onProgress: (progress: number) => void
 ) {
@@ -133,6 +138,7 @@ export default function PhoneVideoUpload({
 }: PhoneVideoUploadProps) {
   const utils = trpc.useUtils();
   const prepare = trpc.video.prepare.useMutation();
+  const preparePart = trpc.video.preparePart.useMutation();
   const finish = trpc.video.finish.useMutation();
   const retry = trpc.video.retry.useMutation();
   const cancel = trpc.video.cancel.useMutation();
@@ -245,7 +251,13 @@ export default function PhoneVideoUpload({
         setIsReconcilingReady(false);
       }
     })();
-  }, [job, onCompleted, readyRefreshAttempt, utils.content.adminGet, utils.content.catalog]);
+  }, [
+    job,
+    onCompleted,
+    readyRefreshAttempt,
+    utils.content.adminGet,
+    utils.content.catalog,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -323,15 +335,34 @@ export default function PhoneVideoUpload({
       await onJobStarted();
 
       if (cancelledJobRef.current === prepared.jobId) return;
-      const upload = createPutRequest(
-        prepared.uploadUrl,
-        nextFile,
-        prepared.contentType,
-        setProgress
-      );
-      requestRef.current = upload.request;
-      await upload.promise;
-      requestRef.current = null;
+      const encryption = prepared.encryption;
+      for (let index = 0; index < privateChunkCount(encryption); index++) {
+        if (cancelledJobRef.current === prepared.jobId) return;
+        const encrypted = await encryptPrivateFileChunk(
+          nextFile,
+          encryption,
+          index
+        );
+        const part = await preparePart.mutateAsync({
+          id: prepared.jobId,
+          index,
+        });
+        if (cancelledJobRef.current === prepared.jobId) return;
+        const upload = createPutRequest(
+          part.uploadUrl,
+          encrypted,
+          "application/octet-stream",
+          percentage => {
+            const sent =
+              index * encryption.chunkSize +
+              (privatePlainChunkSize(encryption, index) * percentage) / 100;
+            setProgress(Math.min(99, Math.round((sent / nextFile.size) * 100)));
+          }
+        );
+        requestRef.current = upload.request;
+        await upload.promise;
+        requestRef.current = null;
+      }
       setProgress(100);
       transferComplete = true;
 
@@ -505,8 +536,8 @@ export default function PhoneVideoUpload({
             téléphone
           </h4>
           <p>
-            Envoie l’original depuis Photos ou Fichiers. La conversion continue
-            ensuite sur le serveur.
+            Envoie l’original depuis Photos ou Fichiers. Il est chiffré avant
+            l’envoi, puis converti sur le serveur.
           </p>
         </div>
         <span
@@ -658,20 +689,29 @@ export default function PhoneVideoUpload({
         </div>
       )}
 
-      {retryKind === "transfer" && (
+      {(retryKind === "transfer" ||
+        (status === "uploading" && !file && !isStarting)) && (
         <div className="phone-video-recovery">
           <p>
-            Le transfert a été interrompu. Il doit recommencer depuis le début;
-            aucun téléversement par morceaux n’est repris.
+            Le transfert a été interrompu ou l’original n’est plus disponible
+            dans ce navigateur. Choisis la vidéo à nouveau; le transfert
+            recommence.
           </p>
           <div className="phone-video-actions">
             <button
               type="button"
               className="btn primary"
-              onClick={() => void retryTransfer()}
+              onClick={() =>
+                void (async () => {
+                  if (!file) {
+                    if (await cancelJob()) photosInputRef.current?.click();
+                  } else await retryTransfer();
+                })()
+              }
               disabled={isMutating}
             >
-              <RefreshCw size={16} /> Réessayer le transfert
+              <RefreshCw size={16} />{" "}
+              {file ? "Réessayer le transfert" : "Recommencer avec l’original"}
             </button>
             <button
               type="button"

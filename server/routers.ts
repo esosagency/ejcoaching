@@ -1,9 +1,10 @@
-import { COOKIE_NAME } from '@shared/const';
-import { getSessionCookieOptions } from './_core/cookies';
-import { systemRouter } from './_core/systemRouter';
-import { publicProcedure, router } from './_core/trpc';
-import { contentRouter } from './contentRouter';
-import { videoRouter } from './video/videoRouter';
+import { COOKIE_NAME } from "@shared/const";
+import { getSessionCookieOptions } from "./_core/cookies";
+import { systemRouter } from "./_core/systemRouter";
+import { publicProcedure, router } from "./_core/trpc";
+import { contentRouter } from "./contentRouter";
+import { videoRouter } from "./video/videoRouter";
+import { clientRouter } from "./clientRouter";
 
 export const appRouter = router({
   system: systemRouter,
@@ -17,5 +18,6 @@ export const appRouter = router({
   }),
   content: contentRouter,
   video: videoRouter,
+  clients: clientRouter,
 });
 export type AppRouter = typeof appRouter;

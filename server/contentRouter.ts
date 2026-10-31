@@ -2,7 +2,13 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { storageGet, storageGetSignedUrl } from "./storage";
 import { ENV } from "./_core/env";
-import { adminProcedure, publicProcedure, router } from "./_core/trpc";
+import { adminProcedure, protectedProcedure, router } from "./_core/trpc";
+import { getAccessForUser, getAssignedCourseIds } from "./clientAccess";
+import { protectCourseMedia } from "./courseMedia";
+import {
+  preparePrivateMedia,
+  verifyPrivateStoredMedia,
+} from "./privateMediaStorage";
 import {
   ContentConflictError,
   ContentDatabaseUnavailableError,
@@ -16,7 +22,7 @@ import {
   getAdminCourse,
   getOwnedUpload,
   listAdminCourses,
-  listPublicCourses,
+  listAccessibleCourses,
   markUploadReady,
   reorderLessons,
   updateCourse,
@@ -160,9 +166,29 @@ async function verifyUploadedObject(upload: {
 }
 
 export const contentRouter = router({
-  catalog: publicProcedure.query(() =>
-    executeContent(() => listPublicCourses())
-  ),
+  catalog: protectedProcedure
+    .input(
+      z.object({ accountId: z.number().int().positive() }).strict().optional()
+    )
+    .query(async ({ ctx, input }) => {
+      if (input && input.accountId !== ctx.user.id)
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            "Ton compte a changé. Réessaie après avoir actualisé ta connexion.",
+        });
+      const access = await getAccessForUser(ctx.user);
+      if (!access.allowed)
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            "L’espace d’apprentissage est réservé aux clients approuvés.",
+        });
+      const ids = await getAssignedCourseIds(ctx.user);
+      return (await executeContent(() => listAccessibleCourses(ids))).map(
+        protectCourseMedia
+      );
+    }),
 
   adminList: adminProcedure.query(() =>
     executeContent(() => listAdminCourses())
@@ -254,10 +280,21 @@ export const contentRouter = router({
       const upload = await executeContent(() =>
         createPendingUpload(ctx.user.id, input)
       );
+      const encryption =
+        upload.kind === "document"
+          ? await executeContent(() =>
+              preparePrivateMedia(
+                upload.objectKey,
+                upload.size,
+                upload.contentType,
+                "single"
+              )
+            )
+          : undefined;
       const uploadUrl = await executeContent(() =>
         createPutUploadUrl(upload.objectKey)
       );
-      return { id: upload.id, uploadUrl };
+      return { id: upload.id, uploadUrl, encryption };
     }),
 
   finishUpload: adminProcedure
@@ -279,7 +316,15 @@ export const contentRouter = router({
         return { id: upload.id, filename: upload.filename, url: stable.url };
       }
 
-      await executeContent(() => verifyUploadedObject(upload));
+      await executeContent(() =>
+        upload.kind === "document"
+          ? verifyPrivateStoredMedia(
+              upload.objectKey,
+              upload.size,
+              upload.contentType
+            )
+          : verifyUploadedObject(upload)
+      );
       const markedReady = await executeContent(() =>
         markUploadReady(upload.id, ctx.user.id)
       );

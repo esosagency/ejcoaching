@@ -18,7 +18,8 @@ export function useAuth(options?: UseAuthOptions) {
 
   const meQuery = trpc.auth.me.useQuery(undefined, {
     retry: false,
-    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnWindowFocus: true,
   });
 
   const logoutMutation = trpc.auth.logout.useMutation({
@@ -44,15 +45,27 @@ export function useAuth(options?: UseAuthOptions) {
       // backend cookie is cleared by the logout mutation.
       try {
         sessionStorage.removeItem("manus-cookie");
+        localStorage.removeItem("manus-runtime-user-info");
       } catch {}
       utils.auth.me.setData(undefined, null);
+      await Promise.all([
+        utils.clients.me.reset(),
+        utils.clients.adminList.reset(),
+        utils.content.catalog.reset(),
+        utils.content.adminList.reset(),
+        utils.content.adminGet.reset(),
+        utils.video.get.reset(),
+      ]);
       await utils.auth.me.invalidate();
     }
   }, [logoutMutation, utils]);
 
   const state = useMemo(() => {
     try {
-      localStorage.setItem("manus-runtime-user-info", JSON.stringify(meQuery.data));
+      localStorage.setItem(
+        "manus-runtime-user-info",
+        JSON.stringify(meQuery.data)
+      );
     } catch {
       // Storage is optional; the validated server session remains authoritative.
     }

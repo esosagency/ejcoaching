@@ -12,7 +12,7 @@ const contentDbMock = vi.hoisted(() => {
     ContentConflictError: MockContentConflictError,
     ContentValidationError: MockContentValidationError,
     ContentDatabaseUnavailableError: MockContentDatabaseUnavailableError,
-    listPublicCourses: vi.fn(),
+    listAccessibleCourses: vi.fn(),
     listAdminCourses: vi.fn(),
     getAdminCourse: vi.fn(),
     createCourse: vi.fn(),
@@ -29,6 +29,15 @@ const contentDbMock = vi.hoisted(() => {
 });
 
 vi.mock("./contentDb", () => contentDbMock);
+const accessMock = vi.hoisted(() => ({
+  getAccessForUser: vi.fn(),
+  getAssignedCourseIds: vi.fn(),
+}));
+vi.mock("./clientAccess", () => accessMock);
+vi.mock("./privateMediaStorage", () => ({
+  preparePrivateMedia: vi.fn(),
+  verifyPrivateStoredMedia: vi.fn(),
+}));
 
 import { contentRouter } from "./contentRouter";
 import {
@@ -108,7 +117,7 @@ describe("contentRouter access control", () => {
 });
 
 describe("contentRouter catalogue et révisions", () => {
-  it("retourne le catalogue public déjà filtré aux cours publiés", async () => {
+  it("retourne seulement le catalogue attribué au compte approuvé", async () => {
     const publishedCourse = {
       ...validCourse,
       id: "nutrition",
@@ -119,13 +128,38 @@ describe("contentRouter catalogue et révisions", () => {
       revision: 1,
       updatedAt: now.toISOString(),
     };
-    contentDbMock.listPublicCourses.mockResolvedValue([publishedCourse]);
+    contentDbMock.listAccessibleCourses.mockResolvedValue([publishedCourse]);
+    accessMock.getAccessForUser.mockResolvedValue({ allowed: true });
+    accessMock.getAssignedCourseIds.mockResolvedValue(["nutrition"]);
 
-    const result = await contentRouter.createCaller(context(null)).catalog();
+    const result = await contentRouter
+      .createCaller(context(user("user")))
+      .catalog({ accountId: 12 });
 
     expect(result).toEqual([publishedCourse]);
-    expect(contentDbMock.listPublicCourses).toHaveBeenCalledOnce();
+    expect(contentDbMock.listAccessibleCourses).toHaveBeenCalledWith([
+      "nutrition",
+    ]);
     expect(contentDbMock.listAdminCourses).not.toHaveBeenCalled();
+  });
+
+  it("refuse le catalogue anonyme, révoqué et associé à une autre identité", async () => {
+    await expect(
+      contentRouter.createCaller(context(null)).catalog()
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    accessMock.getAccessForUser.mockResolvedValue({
+      allowed: false,
+      reason: "revoked",
+    });
+    await expect(
+      contentRouter.createCaller(context(user("user"))).catalog()
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
+      contentRouter
+        .createCaller(context(user("user")))
+        .catalog({ accountId: 11 })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(contentDbMock.listAccessibleCourses).not.toHaveBeenCalled();
   });
 
   it("retourne CONFLICT lorsqu’une mise à jour utilise une révision dépassée", async () => {

@@ -11,6 +11,7 @@ import {
   cancelVideoJob,
   claimNextVideoJob,
   recoverExpiredVideoJobs,
+  touchUploadingVideoJob,
 } from "./videoDb";
 
 type Update = { values: Record<string, unknown>; where?: SQL };
@@ -28,7 +29,10 @@ function mockDatabase(rows: unknown[][] = []) {
       const builder = {
         from: () => builder,
         innerJoin: () => builder,
-        where: (where: SQL) => { selection.where = where; return builder; },
+        where: (where: SQL) => {
+          selection.where = where;
+          return builder;
+        },
         orderBy: () => builder,
         limit: async () => rows.shift() ?? [],
       };
@@ -43,7 +47,9 @@ function mockDatabase(rows: unknown[][] = []) {
       }),
     })),
   };
-  transaction.mockImplementation((callback: (db: typeof database) => unknown) => callback(database));
+  transaction.mockImplementation((callback: (db: typeof database) => unknown) =>
+    callback(database)
+  );
   mocks.getDb.mockResolvedValue(database);
   return { updates, selects };
 }
@@ -71,7 +77,10 @@ describe("phone video lifecycle safety (isolated, no database writes)", () => {
     const state = mockDatabase([[row], [{ ...row, status: "cancelled" }]]);
     const result = await cancelVideoJob(row.id, row.ownerUserId);
     expect(result.status).toBe("cancelled");
-    expect(state.updates[0].values).toMatchObject({ status: "cancelled", leaseToken: null });
+    expect(state.updates[0].values).toMatchObject({
+      status: "cancelled",
+      leaseToken: null,
+    });
     expect(query(state.updates[0].where).params).toContain("failed");
     expect(state.updates[1].values).toHaveProperty("videoJobId", null);
     expect(state.updates[1].values).not.toHaveProperty("videoUrl");
@@ -106,6 +115,30 @@ describe("phone video lifecycle safety (isolated, no database writes)", () => {
     expect(state.updates[0].values.status).toBe("cancelled");
     expect(query(state.updates[0].where).sql).toMatch(/not\s*\(exists/i);
     expect(state.updates[1].values.status).toBe("failed");
+  });
+
+  it("expires inactive source transfers with an atomic time guard and exact lesson pointer", async () => {
+    const state = mockDatabase([
+      [{ id: "abandoned_upload", lessonId: "lesson_one" }],
+    ]);
+    await recoverExpiredVideoJobs();
+    const cutoff = query(state.selects[0].where);
+    expect(cutoff.sql).toMatch(/updatedAt/);
+    expect(cutoff.params).toContain("uploading");
+    expect(state.updates[0].values.status).toBe("cancelled");
+    expect(query(state.updates[0].where).sql).toMatch(/updatedAt/);
+    expect(state.updates[1].values.videoJobId).toBeNull();
+    expect(state.updates[1].values).not.toHaveProperty("videoUrl");
+    expect(query(state.updates[1].where).params).toContain("abandoned_upload");
+  });
+
+  it("refreshes only the current owner’s uploading job without editing the lesson", async () => {
+    const state = mockDatabase();
+    expect(await touchUploadingVideoJob("upload_one", 22)).toBe(true);
+    const condition = query(state.updates[0].where);
+    expect(condition.params).toContain(22);
+    expect(condition.params).toContain("uploading");
+    expect(state.updates[0].values).not.toHaveProperty("videoUrl");
   });
 
   it("archives a course and cancels its outstanding video work in the same transaction", async () => {

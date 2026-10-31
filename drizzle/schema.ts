@@ -7,6 +7,7 @@ import {
   json,
   mysqlEnum,
   mysqlTable,
+  primaryKey,
   text,
   timestamp,
   varchar,
@@ -247,7 +248,95 @@ export const contentSetup = mysqlTable("contentSetup", {
     .notNull(),
 });
 
+/**
+ * Explicit client approvals keyed by the normalized OAuth email. The email is
+ * deliberately immutable: OAuth remains the source of identity, while this
+ * table is an administrator-managed authorization record.
+ */
+export const coachingClients = mysqlTable(
+  "coachingClients",
+  {
+    id: varchar("id", { length: 64 }).primaryKey(),
+    email: varchar("email", { length: 320 }).notNull().unique(),
+    name: varchar("name", { length: 180 }).notNull(),
+    status: mysqlEnum("status", ["active", "revoked"])
+      .notNull()
+      .default("active"),
+    revision: int("revision").notNull().default(1),
+    createdBy: int("createdBy")
+      .notNull()
+      .references(() => users.id, {
+        onDelete: "restrict",
+        onUpdate: "cascade",
+      }),
+    createdAt: datetime("createdAt")
+      .default(sql`(CURRENT_TIMESTAMP)`)
+      .notNull(),
+    updatedAt: datetime("updatedAt")
+      .default(sql`(CURRENT_TIMESTAMP)`)
+      .notNull(),
+  },
+  table => [index("coachingClients_status_idx").on(table.status)]
+);
+
+/** Per-client course assignments. Client records and courses are never deleted here. */
+export const clientCourseAccess = mysqlTable(
+  "clientCourseAccess",
+  {
+    clientId: varchar("clientId", { length: 64 })
+      .notNull()
+      .references(() => coachingClients.id, {
+        onDelete: "restrict",
+        onUpdate: "cascade",
+      }),
+    courseId: varchar("courseId", { length: 128 })
+      .notNull()
+      .references(() => contentCourses.id, {
+        onDelete: "restrict",
+        onUpdate: "cascade",
+      }),
+    createdAt: datetime("createdAt")
+      .default(sql`(CURRENT_TIMESTAMP)`)
+      .notNull(),
+  },
+  table => [
+    primaryKey({ columns: [table.clientId, table.courseId] }),
+    index("clientCourseAccess_course_idx").on(table.courseId),
+  ]
+);
+
+/**
+ * Server-only encryption metadata. Do not expose this table or its key material
+ * through access, client-management, or course DTOs.
+ */
+export const privateMedia = mysqlTable(
+  "privateMedia",
+  {
+    objectKey: varchar("objectKey", { length: 512 }).primaryKey(),
+    id: varchar("id", { length: 64 }).notNull().unique(),
+    keyBase64: varchar("keyBase64", { length: 44 }).notNull(),
+    nonceBase64: varchar("nonceBase64", { length: 16 }).notNull(),
+    plainSize: int("plainSize").notNull(),
+    chunkSize: int("chunkSize").notNull(),
+    contentType: varchar("contentType", { length: 128 }).notNull(),
+    layout: mysqlEnum("layout", ["single", "parts"]).notNull(),
+    status: mysqlEnum("status", ["pending", "ready"])
+      .notNull()
+      .default("pending"),
+    createdAt: datetime("createdAt")
+      .default(sql`(CURRENT_TIMESTAMP)`)
+      .notNull(),
+    updatedAt: datetime("updatedAt")
+      .default(sql`(CURRENT_TIMESTAMP)`)
+      .notNull(),
+  },
+  table => [index("privateMedia_status_idx").on(table.status, table.updatedAt)]
+);
+
 export type ContentCourseRow = typeof contentCourses.$inferSelect;
 export type ContentLessonRow = typeof contentLessons.$inferSelect;
 export type ContentUploadRow = typeof contentUploads.$inferSelect;
 export type ContentVideoJobRow = typeof contentVideoJobs.$inferSelect;
+export type CoachingClientRow = typeof coachingClients.$inferSelect;
+export type ClientCourseAccessRow = typeof clientCourseAccess.$inferSelect;
+export type PrivateMediaRow = typeof privateMedia.$inferSelect;

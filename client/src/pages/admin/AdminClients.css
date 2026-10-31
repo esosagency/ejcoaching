@@ -1,0 +1,387 @@
+/* Client access management: deliberately scoped so existing course administration stays untouched. */
+.admin-clients-page .btn,
+.admin-clients-page .admin-filter-select,
+.admin-clients-page .admin-search input,
+.client-form-modal input,
+.client-form-modal button,
+.client-confirm-modal button {
+  min-height: 44px;
+}
+.client-heading {
+  align-items: flex-end;
+}
+.clients-panel {
+  overflow: hidden;
+  padding: 25px;
+}
+.client-toolbar {
+  margin-bottom: 19px;
+}
+.client-filters .admin-search {
+  min-height: 44px;
+}
+.client-filters .admin-search input {
+  height: 42px;
+}
+.client-filters .admin-filter-select {
+  height: 44px;
+}
+.client-list {
+  display: grid;
+  gap: 10px;
+}
+.client-card {
+  display: grid;
+  grid-template-columns: 47px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 15px;
+  border: 1px solid #2a2e40;
+  border-radius: 13px;
+  background: linear-gradient(110deg, #131623, #10121c);
+  padding: 15px;
+  transition:
+    border-color 0.18s ease,
+    transform 0.18s ease;
+}
+.client-card:hover {
+  border-color: rgba(155, 128, 241, 0.54);
+  transform: translateY(-1px);
+}
+.client-avatar {
+  display: grid;
+  width: 47px;
+  height: 47px;
+  place-items: center;
+  border: 1px solid #514269;
+  border-radius: 14px;
+  background: radial-gradient(circle at 35% 25%, #4e3974, #282137 72%);
+  color: #ded2fc;
+  font-family: Manrope, sans-serif;
+  font-size: 17px;
+  font-weight: 800;
+}
+.client-card-main {
+  min-width: 0;
+}
+.client-card-topline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+.client-card h3 {
+  overflow: hidden;
+  margin: 0;
+  color: #f1eff8;
+  font-size: 15px;
+  line-height: 1.28;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.client-email,
+.client-card-details,
+.client-assignments {
+  color: #9095aa;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.client-email {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+}
+.client-email svg {
+  flex: 0 0 auto;
+  color: #b5a0f8;
+}
+.client-status {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid #40384f;
+  border-radius: 999px;
+  padding: 5px 8px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.075em;
+  text-transform: uppercase;
+}
+.client-status.is-active {
+  border-color: rgba(101, 187, 145, 0.38);
+  background: rgba(55, 133, 95, 0.13);
+  color: #a7e0bd;
+}
+.client-status.is-revoked {
+  border-color: rgba(241, 121, 136, 0.34);
+  background: rgba(190, 64, 83, 0.1);
+  color: #f0adb6;
+}
+.client-card-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 15px;
+  margin-top: 11px;
+}
+.client-card-details span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.client-card-details svg {
+  color: #ae96f1;
+}
+.client-assignments {
+  overflow: hidden;
+  margin: 8px 0 0;
+  color: #aaaec0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.client-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.client-card-actions .btn {
+  min-width: 118px;
+}
+.client-revoke-button,
+.client-danger-action {
+  border: 1px solid rgba(235, 135, 149, 0.42);
+  background: rgba(156, 54, 71, 0.12);
+  color: #f3adb7;
+}
+.client-revoke-button:hover,
+.client-danger-action:hover {
+  background: rgba(188, 68, 84, 0.24);
+}
+.client-form-modal {
+  width: 735px;
+}
+.client-form-modal .admin-modal-header,
+.client-confirm-modal .admin-modal-header {
+  margin-bottom: 20px;
+}
+.client-icon-button {
+  min-width: 44px;
+  min-height: 44px;
+}
+.client-readonly-email {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 8px;
+  overflow-wrap: anywhere;
+  border: 1px solid #303446;
+  border-radius: 9px;
+  background: #0e101a;
+  color: #bfc0d1;
+  padding: 10px 11px;
+  font-size: 12px;
+}
+.client-readonly-email svg {
+  flex: 0 0 auto;
+  color: #a68cea;
+}
+.client-course-legend {
+  color: #c9cada;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 700;
+}
+.client-course-legend span {
+  color: #8b8fa4;
+  font-weight: 500;
+}
+.client-course-help {
+  margin: 7px 0 12px;
+  color: #85899e;
+  font-size: 10px;
+  line-height: 1.55;
+}
+.client-course-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+.client-course-choice {
+  display: grid;
+  min-height: 62px;
+  grid-template-columns: 21px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #303446;
+  border-radius: 10px;
+  background: #11141f;
+  color: #b8bbcd;
+  padding: 10px;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease;
+}
+.client-course-choice:hover {
+  border-color: #635282;
+  background: #171a28;
+}
+.client-course-choice:has(input:focus-visible) {
+  outline: 2px solid #b5a0ff;
+  outline-offset: 3px;
+}
+.client-course-choice:has(input:checked) {
+  border-color: #8466d8;
+  background: rgba(138, 102, 239, 0.15);
+  color: #ebe5ff;
+}
+.client-course-choice input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+.client-course-check {
+  display: grid;
+  width: 21px;
+  height: 21px;
+  place-items: center;
+  border: 1px solid #5b5970;
+  border-radius: 6px;
+  color: transparent;
+}
+.client-course-choice:has(input:checked) .client-course-check {
+  border-color: #ab90ff;
+  background: #8f6ded;
+  color: #fff;
+}
+.client-course-choice-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+.client-course-choice-copy strong,
+.client-course-choice-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.client-course-choice-copy strong {
+  font-size: 11px;
+}
+.client-course-choice-copy small {
+  color: #9296aa;
+  font-size: 9px;
+}
+.client-course-load {
+  display: flex;
+  min-height: 50px;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  border: 1px dashed #3f4356;
+  border-radius: 10px;
+  color: #9da2b8;
+  padding: 10px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.client-course-load.is-error {
+  justify-content: space-between;
+  border-color: rgba(241, 121, 136, 0.34);
+  color: #edabb4;
+}
+.client-course-load button {
+  min-height: 38px;
+  border: 1px solid #514452;
+  border-radius: 7px;
+  background: transparent;
+  color: #e4c1c8;
+  padding: 7px 9px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.client-confirm-modal {
+  width: 550px;
+}
+.client-confirm-note {
+  margin: 0;
+  border: 1px solid rgba(187, 161, 253, 0.28);
+  border-radius: 10px;
+  background: rgba(125, 91, 207, 0.1);
+  color: #c9b9f3;
+  padding: 12px;
+  font-size: 11px;
+  line-height: 1.55;
+}
+@media (max-width: 840px) {
+  .client-card {
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+  .client-card-actions {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+  .client-course-options {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 680px) {
+  .clients-panel {
+    padding: 18px;
+  }
+  .client-heading {
+    align-items: stretch;
+  }
+  .client-heading .admin-heading-actions .btn {
+    width: 100%;
+  }
+  .client-filters {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .client-filters .admin-filter-select {
+    width: 100%;
+  }
+}
+@media (max-width: 480px) {
+  .client-card {
+    grid-template-columns: 40px minmax(0, 1fr);
+    gap: 11px;
+    padding: 13px;
+  }
+  .client-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+  }
+  .client-card-topline {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .client-status {
+    align-self: flex-start;
+  }
+  .client-card-actions {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .client-card-actions .btn {
+    min-width: 0;
+  }
+  .client-assignments {
+    white-space: normal;
+  }
+  .client-course-load.is-error {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .client-card {
+    transition: none;
+  }
+}
