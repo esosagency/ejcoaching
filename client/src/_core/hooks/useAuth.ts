@@ -36,6 +36,7 @@ export function useAuth(options?: UseAuthOptions) {
       utils.content.adminList.reset(),
       utils.content.adminGet.reset(),
       utils.video.get.reset(),
+      utils.learning.snapshot.reset(),
     ]);
     await utils.auth.me.invalidate();
   }, [utils]);

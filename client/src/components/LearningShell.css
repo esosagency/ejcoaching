@@ -1,0 +1,62 @@
+.learning-sync-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  border-bottom: 1px solid rgba(161, 139, 239, 0.18);
+  background: rgba(68, 47, 122, 0.16);
+  color: #b8b2ca;
+  padding: 0 36px;
+  font-size: 10px;
+}
+
+.learning-sync-banner .status-dot {
+  background: #9c82ed;
+}
+.learning-sync-banner.is-saving .status-dot,
+.learning-sync-banner.is-loading .status-dot {
+  background: #d1bdff;
+}
+.learning-sync-banner.is-error {
+  border-color: rgba(235, 155, 94, 0.35);
+  background: rgba(107, 59, 29, 0.2);
+  color: #f0c59d;
+}
+.learning-sync-banner.is-error .status-dot {
+  background: #f0ad72;
+}
+.learning-sync-banner button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: #e0d6ff;
+  padding: 5px 0;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+.learning-sync-banner.is-error button {
+  color: #ffe0bf;
+}
+.learning-sync-banner button:hover {
+  color: #fff;
+}
+
+@media (max-width: 820px) {
+  .learning-sync-banner {
+    padding-right: 20px;
+    padding-left: 20px;
+  }
+}
+
+@media (max-width: 500px) {
+  .learning-sync-banner {
+    align-items: flex-start;
+    padding-top: 8px;
+    padding-bottom: 8px;
+    line-height: 1.35;
+  }
+}

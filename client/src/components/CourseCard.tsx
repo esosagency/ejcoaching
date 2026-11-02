@@ -10,6 +10,7 @@ type CourseCardProps = {
   progress?: number;
   savedCount?: number;
   compact?: boolean;
+  progressScope?: "account" | "browser";
 };
 
 const courseIcons = {
@@ -45,10 +46,10 @@ export function CourseArtwork({ course, className = "" }: { course: Course; clas
   );
 }
 
-export default function CourseCard({ course, progress = 0, savedCount = 0, compact = false }: CourseCardProps) {
+export default function CourseCard({ course, progress = 0, savedCount = 0, compact = false, progressScope = "account" }: CourseCardProps) {
   const safeProgress = Number.isFinite(progress) ? Math.max(0, Math.min(100, progress)) : 0;
   const isSample = course.isSample !== false;
-  const progressLabel = safeProgress === 100 ? "Terminé dans ce navigateur" : `${safeProgress} % de progression dans ce navigateur`;
+  const progressLabel = safeProgress === 100 ? (progressScope === "account" ? "Terminé pour ton compte" : "Terminé dans ce navigateur") : `${safeProgress} % de progression ${progressScope === "account" ? "pour ton compte" : "dans ce navigateur"}`;
   return (
     <Link href={`/courses/${course.id}`} className={`lp-course-card ${compact ? "lp-course-card-compact" : ""}`}>
       <CourseArtwork course={course} />

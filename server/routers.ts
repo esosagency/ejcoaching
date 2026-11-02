@@ -7,7 +7,7 @@ import { publicProcedure, router } from "./_core/trpc";
 import { clientRouter } from "./clientRouter";
 import { contentRouter } from "./contentRouter";
 import { videoRouter } from "./video/videoRouter";
-
+import { learningRouter } from "./learningRouter";
 function viewerProfile(ctx: {
   user: {
     id: number;
@@ -57,5 +57,6 @@ export const appRouter = router({
   content: contentRouter,
   video: videoRouter,
   clients: clientRouter,
+  learning: learningRouter,
 });
 export type AppRouter = typeof appRouter;

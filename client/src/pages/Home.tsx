@@ -13,7 +13,7 @@ function safeCourseProgress(course: Course, courseProgress: (course: Course) => 
 
 export default function Home() {
   const { courses: catalogCourses, loading, error, retry, isAdminPreview } = useCatalog();
-  const { completed, lastLesson, courseProgress } = useLearning();
+  const { completed, lastLesson, courseProgress, persistence } = useLearning();
   const courses = isAdminPreview ? catalogCourses : catalogCourses.filter((course) => course.status !== "draft");
   const allLessons = courses.flatMap((course) => course.lessons);
   const completedLessonIds = completed.filter((id) => allLessons.some((lesson) => lesson.id === id));
@@ -104,8 +104,8 @@ export default function Home() {
           </div>
         </article>
         <article className="journey-panel panel">
-          <div className="section-heading"><h2>Ton parcours d’apprentissage</h2><span className="tiny-badge">PROGRESSION LOCALE</span></div>
-          <div className="progress-ring" style={{ background: `conic-gradient(#a188fb ${overall}%, #28233c 0)` }} aria-label={`${overall} pour cent des leçons terminées dans ce navigateur`}><div><strong>{overall}<span> %</span></strong><small>progression globale</small></div></div>
+          <div className="section-heading"><h2>Ton parcours d’apprentissage</h2><span className="tiny-badge">{persistence === "client-cloud" ? "PROGRESSION SYNCHRONISÉE" : "PROGRESSION LOCALE"}</span></div>
+          <div className="progress-ring" style={{ background: `conic-gradient(#a188fb ${overall}%, #28233c 0)` }} aria-label={`${overall} pour cent des leçons terminées${persistence === "client-cloud" ? " pour ton compte" : " dans ce navigateur"}`}><div><strong>{overall}<span> %</span></strong><small>progression globale</small></div></div>
           <div className="journey-stats"><div><strong>{completedLessonIds.length}<span> / {allLessons.length}</span></strong><small>Leçons terminées</small></div><div><strong>{completedCourses}<span> / {coursesWithLessons.length}</span></strong><small>Cours terminés</small></div></div>
           <p className="journey-note"><span className="status-dot" /> {completedLessonIds.length > 0 ? "Garde le cap. Chaque leçon compte." : "Ta première leçon, ton premier pas."}</p>
           <Link href="/my-learning" className="journey-link">Voir mon apprentissage <ArrowUpRight size={15} /></Link>

@@ -15,24 +15,13 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useParams } from "wouter";
 import { getVimeoEmbedUrl } from "@shared/vimeo";
+import { MAX_LEARNING_NOTE_LENGTH } from "@shared/learning";
 import { useCatalog } from "@/contexts/CatalogContext";
 import { useLearning } from "@/contexts/LearningContext";
-import { useAccess } from "@/contexts/AccessContext";
-import { accountStorageKey, readAccountStorage } from "@/lib/accountStorage";
 import NotFound from "@/pages/NotFound";
 import "./LearningPages.css";
 
 type LessonTab = "overview" | "notes" | "resources";
-
-function readNotes(key: string, legacy?: string, owner = false) {
-  try {
-    return typeof window === "undefined"
-      ? ""
-      : readAccountStorage(key, legacy, owner) || "";
-  } catch {
-    return "";
-  }
-}
 
 function embedId(pathname: string, marker: string) {
   const parts = pathname.split("/").filter(Boolean);
@@ -110,6 +99,15 @@ export default function Lesson() {
     toggleSaved,
     visitLesson,
     courseProgress,
+    persistence,
+    loading: learningLoading,
+    syncError,
+    retrySync,
+    isLessonActionPending,
+    noteForLesson,
+    setNoteDraft,
+    saveNote,
+    resolveNoteConflict,
   } = useLearning();
   const [, navigate] = useLocation();
   const requestedCourseId = courseId || id || "";
@@ -122,25 +120,15 @@ export default function Lesson() {
   const [controlsVisible, setControlsVisible] = useState(false);
   const [videoError, setVideoError] = useState(false);
   const [activeTab, setActiveTab] = useState<LessonTab>("overview");
-  const { access } = useAccess();
-  const notesKey = accountStorageKey(
-    access?.user?.accountKey,
-    `notes-${lessonId || "unknown"}`
-  );
-  const legacyNotesKey = `ej-demo-notes-${lessonId || "unknown"}`;
-  const [notes, setNotes] = useState(() =>
-    readNotes(notesKey, legacyNotesKey, Boolean(access?.isAdmin))
-  );
 
   useEffect(() => {
     if (lesson && !isAdminPreview) visitLesson(lesson.id);
   }, [isAdminPreview, lesson?.id, visitLesson]);
 
   useEffect(() => {
-    setNotes(readNotes(notesKey, legacyNotesKey, Boolean(access?.isAdmin)));
     setControlsVisible(false);
     setActiveTab("overview");
-  }, [notesKey]);
+  }, [lessonId]);
 
   useEffect(() => {
     setControlsVisible(false);
@@ -153,15 +141,6 @@ export default function Lesson() {
       currentVideo?.pause();
     };
   }, [lesson?.id]);
-
-  useEffect(() => {
-    if (!lessonId) return;
-    try {
-      localStorage.setItem(notesKey, notes);
-    } catch {
-      /* Browser storage is optional. */
-    }
-  }, [lessonId, notes, notesKey]);
 
   if (loading)
     return (
@@ -197,6 +176,9 @@ export default function Lesson() {
   const nextLesson = course.lessons[lessonIndex + 1];
   const isCompleted = completed.includes(lesson.id);
   const isSaved = saved.includes(lesson.id);
+  const completePending = isLessonActionPending(lesson.id, "completed");
+  const savePending = isLessonActionPending(lesson.id, "saved");
+  const note = noteForLesson(lesson.id);
   const progress = course.lessons.length ? courseProgress(course) : 0;
   const videoType = lesson.videoType || "demo";
   const pendingWithoutVideo = Boolean(
@@ -253,21 +235,39 @@ export default function Lesson() {
               type="button"
               className={`btn secondary lp-save-button ${isSaved ? "is-saved" : ""}`}
               onClick={() => toggleSaved(lesson.id)}
+              disabled={learningLoading || savePending}
             >
               <Bookmark size={16} fill={isSaved ? "currentColor" : "none"} />{" "}
-              {isSaved ? "Enregistrée" : "Enregistrer la leçon"}
+              {savePending
+                ? "Enregistrement…"
+                : isSaved
+                  ? "Enregistrée"
+                  : "Enregistrer la leçon"}
             </button>
             <button
               type="button"
               className={`btn ${isCompleted ? "secondary" : "primary"}`}
               onClick={() => toggleComplete(lesson.id)}
+              disabled={learningLoading || completePending}
             >
               <Check size={16} />{" "}
-              {isCompleted ? "Leçon terminée" : "Terminer la leçon"}
+              {completePending
+                ? "Enregistrement…"
+                : isCompleted
+                  ? "Leçon terminée"
+                  : "Terminer la leçon"}
             </button>
           </div>
         )}
       </div>
+      {persistence === "client-cloud" && syncError && (
+        <div className="lp-sync-notice" role="alert">
+          <span>{syncError}</span>
+          <button type="button" className="btn secondary" onClick={retrySync}>
+            Réessayer
+          </button>
+        </div>
+      )}
       <section className="lp-player-layout">
         <div className="lp-video-column">
           <div className="lp-video-shell panel">
@@ -446,17 +446,93 @@ export default function Lesson() {
                     <p className="eyebrow">TA RÉFLEXION</p>
                     <h3>Garde une note pour plus tard.</h3>
                   </div>
-                  <span>Dans ce navigateur</span>
+                  <span>
+                    {persistence === "client-cloud"
+                      ? "Synchronisée avec ton compte"
+                      : persistence === "preview"
+                        ? "Aperçu en lecture seule"
+                        : "Dans ce navigateur"}
+                  </span>
                 </div>
-                <textarea
-                  value={notes}
-                  onChange={event => setNotes(event.target.value)}
-                  placeholder="Qu’aimerais-tu retenir ou demander à ton coach?"
-                  aria-label="Notes personnelles de la leçon"
-                />
-                <p>
-                  <Save size={14} /> S’enregistre seulement dans ce navigateur.
-                </p>
+                {persistence === "preview" ? (
+                  <p className="lp-note-status">
+                    <Save size={14} /> Les notes ne sont pas disponibles dans
+                    cet aperçu.
+                  </p>
+                ) : (
+                  <>
+                    <textarea
+                      value={note.text}
+                      onChange={event =>
+                        setNoteDraft(lesson.id, event.target.value)
+                      }
+                      placeholder="Qu’aimerais-tu retenir ou demander à ton coach?"
+                      aria-label="Notes personnelles de la leçon"
+                      maxLength={MAX_LEARNING_NOTE_LENGTH}
+                    />
+                    {persistence === "client-cloud" ? (
+                      <>
+                        <p
+                          className={`lp-note-status is-${note.status}`}
+                          aria-live="polite"
+                        >
+                          <Save size={14} />
+                          {note.status === "saving"
+                            ? "Enregistrement de ta note…"
+                            : note.status === "dirty"
+                              ? "Ta note sera enregistrée sous peu."
+                              : note.status === "error"
+                                ? "La note n’a pas été enregistrée; ton texte est conservé."
+                                : note.status === "conflict"
+                                  ? "Une version plus récente de cette note existe."
+                                  : "Note synchronisée avec ton compte."}
+                        </p>
+                        {note.status === "error" && (
+                          <button
+                            type="button"
+                            className="btn secondary lp-note-retry"
+                            onClick={() => void saveNote(lesson.id)}
+                          >
+                            Réessayer d’enregistrer
+                          </button>
+                        )}
+                        {note.status === "conflict" && (
+                          <div className="lp-note-recovery" role="alert">
+                            <p>
+                              Ton brouillon est toujours dans cette page.
+                              Choisis explicitement la version à conserver.
+                            </p>
+                            <div>
+                              <button
+                                type="button"
+                                className="btn primary"
+                                onClick={() =>
+                                  resolveNoteConflict(lesson.id, "keep")
+                                }
+                              >
+                                Conserver mon texte
+                              </button>
+                              <button
+                                type="button"
+                                className="btn secondary"
+                                onClick={() =>
+                                  resolveNoteConflict(lesson.id, "load")
+                                }
+                              >
+                                Charger la version du serveur
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <p className="lp-note-status">
+                        <Save size={14} /> Enregistrée seulement dans ce
+                        navigateur.
+                      </p>
+                    )}
+                  </>
+                )}
               </div>
             )}
             {activeTab === "resources" && (
@@ -522,7 +598,11 @@ export default function Lesson() {
           </div>
           <div className="lp-mini-progress">
             <div>
-              <span>Progression dans ce navigateur</span>
+              <span>
+                {persistence === "client-cloud"
+                  ? "Progression synchronisée"
+                  : "Progression dans ce navigateur"}
+              </span>
               <strong>{progress} %</strong>
             </div>
             <div className="progress-track">

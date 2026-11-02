@@ -1,4 +1,4 @@
-import { Bookmark, CheckCircle2, CircleDashed, GraduationCap } from "lucide-react";
+import { Bookmark, CheckCircle2, CircleDashed, GraduationCap, RotateCcw } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import CourseCard from "@/components/CourseCard";
@@ -22,7 +22,7 @@ function safeCourseProgress(course: Course, courseProgress: (course: Course) => 
 export default function MyLearning() {
   const [filter, setFilter] = useState<LearningFilter>("all");
   const { courses: catalogCourses, loading, error, retry, isAdminPreview } = useCatalog();
-  const { completed, saved, courseProgress } = useLearning();
+  const { completed, saved, courseProgress, persistence, isSaving, resetProgress } = useLearning();
   const courses = useMemo(() => isAdminPreview ? catalogCourses : catalogCourses.filter((course) => course.status !== "draft"), [catalogCourses, isAdminPreview]);
   const lessonIds = useMemo(() => new Set(courses.flatMap((course) => course.lessons.map((lesson) => lesson.id))), [courses]);
   const completedVisible = completed.filter((id) => lessonIds.has(id));
@@ -50,9 +50,9 @@ export default function MyLearning() {
       <section className="lp-learning-header">
         <div>
           <div className="lp-kicker"><GraduationCap size={14} /> TON ESPACE</div>
-          <p className="eyebrow">PROGRESSION DANS CE NAVIGATEUR</p>
+          <p className="eyebrow">{persistence === "client-cloud" ? "PROGRESSION SYNCHRONISÉE" : "PROGRESSION DANS CE NAVIGATEUR"}</p>
           <h1 className="page-title">Mon apprentissage</h1>
-          <p className="lp-lead">Les leçons terminées, les enregistrements et les réflexions restent sur cet appareil. Elles ne sont pas enregistrées dans ton dossier de coaching.</p>
+          <p className="lp-lead">{persistence === "client-cloud" ? "Tes leçons terminées, tes enregistrements et tes notes suivent ton compte EJ Coaching sur tes appareils connectés. Elles ne sont pas versées à ton dossier de coaching." : "Les leçons terminées, les enregistrements et les réflexions restent sur cet appareil. Elles ne sont pas enregistrées dans ton dossier de coaching."}</p>
         </div>
         <div className="lp-learning-stats">
           <div className="panel"><strong>{completedLessons}</strong><span>leçon{completedLessons === 1 ? "" : "s"} terminée{completedLessons === 1 ? "" : "s"}</span></div>
@@ -66,14 +66,25 @@ export default function MyLearning() {
         <div className="lp-learning-content">
           <div className="section-heading"><div><p className="eyebrow">TON ACTIVITÉ</p><h2>{filters.find((item) => item.id === filter)?.label}</h2></div><span className="muted">{filtered.length} cours</span></div>
           {filtered.length ? (
-            <div className="lp-course-grid lp-learning-grid">{filtered.map(({ course, progress, savedCount }) => <CourseCard key={course.id} course={course} progress={progress} savedCount={savedCount} compact />)}</div>
+            <div className="lp-course-grid lp-learning-grid">{filtered.map(({ course, progress, savedCount }) => <CourseCard key={course.id} course={course} progress={progress} savedCount={savedCount} progressScope={persistence === "client-cloud" ? "account" : "browser"} compact />)}</div>
           ) : (
             <div className="panel lp-empty-state lp-learning-empty">
               <GraduationCap size={28} />
               <h3>{filter === "saved" ? "Aucune leçon enregistrée pour le moment." : filter === "completed" ? "Aucune leçon terminée pour le moment." : "Ton espace d’apprentissage est prêt."}</h3>
-              <p className="muted">Ouvre un cours, puis enregistre une leçon ou marque-la comme terminée pour la voir ici. Cette progression reste dans ce navigateur.</p>
+              <p className="muted">Ouvre un cours, puis enregistre une leçon ou marque-la comme terminée pour la voir ici. {persistence === "client-cloud" ? "Ta progression sera synchronisée avec ton compte." : "Cette progression reste dans ce navigateur."}</p>
               <Link href="/courses" className="btn primary">Parcourir la bibliothèque</Link>
             </div>
+          )}
+          {persistence !== "preview" && (
+            <section className="lp-reset-progress">
+              <div>
+                <strong>Repartir avec une nouvelle progression</strong>
+                <p>{persistence === "client-cloud" ? "Réinitialise les leçons terminées, enregistrées et la dernière leçon sur tous tes appareils. Tes notes sont conservées." : "Réinitialise les leçons terminées, enregistrées et la dernière leçon dans ce navigateur. Tes notes sont conservées."}</p>
+              </div>
+              <button type="button" className="btn secondary" disabled={isSaving} onClick={() => void resetProgress()}>
+                <RotateCcw size={15} /> Réinitialiser
+              </button>
+            </section>
           )}
         </div>
       </section>

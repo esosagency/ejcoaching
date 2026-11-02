@@ -359,6 +359,65 @@ export const clientCourseAccess = mysqlTable(
 );
 
 /**
+ * Durable learning state for an approved personal-code client. Records stay in
+ * place when access changes; every read/write path separately enforces current
+ * client status and lesson visibility.
+ */
+export const clientLessonProgress = mysqlTable(
+  "clientLessonProgress",
+  {
+    clientId: varchar("clientId", { length: 64 })
+      .notNull()
+      .references(() => coachingClients.id, {
+        onDelete: "restrict",
+        onUpdate: "cascade",
+      }),
+    lessonId: varchar("lessonId", { length: 128 })
+      .notNull()
+      .references(() => contentLessons.id, {
+        onDelete: "restrict",
+        onUpdate: "cascade",
+      }),
+    completed: boolean("completed").notNull().default(false),
+    /** Set even for an explicit false, preventing a legacy import from reviving it. */
+    completedSetAt: datetime("completedSetAt", { fsp: 3 }),
+    saved: boolean("saved").notNull().default(false),
+    /** Set even for an explicit false, preventing a legacy import from reviving it. */
+    savedSetAt: datetime("savedSetAt", { fsp: 3 }),
+    note: text("note").notNull(),
+    noteRevision: int("noteRevision").notNull().default(0),
+    lastViewedAt: datetime("lastViewedAt", { fsp: 3 }),
+    createdAt: datetime("createdAt", { fsp: 3 })
+      .default(sql`(CURRENT_TIMESTAMP(3))`)
+      .notNull(),
+    updatedAt: datetime("updatedAt", { fsp: 3 })
+      .default(sql`(CURRENT_TIMESTAMP(3))`)
+      .notNull(),
+  },
+  table => [
+    primaryKey({ columns: [table.clientId, table.lessonId] }),
+    index("clientLessonProgress_client_lastViewed_idx").on(
+      table.clientId,
+      table.lastViewedAt
+    ),
+  ]
+);
+
+/**
+ * Per-client reset tombstone. It prevents a later browser legacy import from
+ * recreating completion, saved, or last-view state that the client reset.
+ */
+export const clientLearningState = mysqlTable("clientLearningState", {
+  clientId: varchar("clientId", { length: 64 })
+    .primaryKey()
+    .references(() => coachingClients.id, {
+      onDelete: "restrict",
+      onUpdate: "cascade",
+    }),
+  lastResetAt: datetime("lastResetAt", { fsp: 3 }).notNull(),
+});
+
+/**
  * Server-only encryption metadata. Do not expose this table or its key material
  * through access, client-management, or course DTOs.
  */
@@ -394,4 +453,6 @@ export type CoachingClientRow = typeof coachingClients.$inferSelect;
 export type ClientCodeSessionRow = typeof clientCodeSessions.$inferSelect;
 export type ClientCodeAttemptRow = typeof clientCodeAttempts.$inferSelect;
 export type ClientCourseAccessRow = typeof clientCourseAccess.$inferSelect;
+export type ClientLessonProgressRow = typeof clientLessonProgress.$inferSelect;
+export type ClientLearningStateRow = typeof clientLearningState.$inferSelect;
 export type PrivateMediaRow = typeof privateMedia.$inferSelect;

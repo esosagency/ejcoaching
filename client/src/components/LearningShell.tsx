@@ -10,6 +10,7 @@ import {
   LockKeyhole,
   LogOut,
   Menu,
+  RefreshCw,
   Search,
   Settings2,
   Sparkles,
@@ -18,6 +19,8 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { startLogin } from "@/const";
+import { useLearning } from "@/contexts/LearningContext";
+import "./LearningShell.css";
 
 const navigation = [
   { href: "/", label: "Tableau de bord", icon: LayoutDashboard },
@@ -28,6 +31,7 @@ const navigation = [
 export default function LearningShell({ children }: { children: ReactNode }) {
   const [location] = useLocation();
   const { user, loading, logout } = useAuth();
+  const { persistence, syncError, syncStatus, retrySync } = useLearning();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const isAdmin = user?.role === "admin";
@@ -227,6 +231,29 @@ export default function LearningShell({ children }: { children: ReactNode }) {
             )}
           </div>
         </header>
+        {persistence === "client-cloud" && (
+          <div
+            className={`learning-sync-banner is-${syncStatus}`}
+            role={syncError ? "alert" : "status"}
+            aria-live="polite"
+          >
+            <span className="status-dot" />
+            <span>
+              {syncError
+                ? syncError
+                : syncStatus === "loading"
+                  ? "Chargement de ta progression synchronisée…"
+                  : syncStatus === "saving"
+                    ? "Enregistrement de ta progression…"
+                    : "Ta progression et tes notes sont synchronisées avec ton compte."}
+            </span>
+            {syncError && (
+              <button type="button" onClick={retrySync}>
+                <RefreshCw size={13} /> Réessayer
+              </button>
+            )}
+          </div>
+        )}
         <main className="page-content" id="main-content">
           {children}
         </main>
@@ -235,7 +262,9 @@ export default function LearningShell({ children }: { children: ReactNode }) {
           <span>
             {inAdmin
               ? "Gestion sécurisée · Contenu enregistré dans la base de données"
-              : "Progrès et notes propres à ton compte, dans ce navigateur"}
+              : persistence === "client-cloud"
+                ? "Progression et notes synchronisées avec ton compte"
+                : "Progrès et notes propres à ton compte, dans ce navigateur"}
           </span>
         </footer>
       </div>
@@ -269,9 +298,10 @@ export default function LearningShell({ children }: { children: ReactNode }) {
             </p>
             <p>
               Les contenus identifiés comme exemples utilisent encore une démo
-              d’interface. Tes notes, tes leçons enregistrées et ta progression
-              restent dans ce navigateur; le suivi client multiappareils n’est
-              pas encore connecté.
+              d’interface. Pour les clients connectés avec un code personnel,
+              les notes, les leçons enregistrées et la progression sont
+              synchronisées avec leur compte. La pratique d’un administrateur
+              demeure locale à son navigateur.
             </p>
             <button className="btn primary" onClick={() => setHelpOpen(false)}>
               Continuer <ArrowUpRight size={16} />

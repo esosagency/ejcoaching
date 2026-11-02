@@ -15,7 +15,7 @@ function safeCourseProgress(course: Course, courseProgress: (course: Course) => 
 export default function CourseDetail() {
   const { courseId, id } = useParams<{ courseId?: string; id?: string }>();
   const { courses: catalogCourses, loading, error, retry, isAdminPreview } = useCatalog();
-  const { completed, courseProgress, lastLesson } = useLearning();
+  const { completed, courseProgress, lastLesson, persistence } = useLearning();
   const requestedCourseId = courseId || id || "";
   const courses = isAdminPreview ? catalogCourses : catalogCourses.filter((item) => item.status !== "draft");
   const course = courses.find((item) => item.id === requestedCourseId);
@@ -73,9 +73,9 @@ export default function CourseDetail() {
           <h3>Un point de départ réfléchi.</h3>
           <p>{isSample ? "Ce cours d’exemple offre un contexte éducatif, et non des directives personnalisées en matière de nutrition, d’entraînement ou de soins de santé." : "Ce cours offre du contenu éducatif. Les conseils personnalisés relèvent de ta conversation de coaching ou de soins de santé."}</p>
           <div className="lp-progress-readout">
-            <div><span>Progression dans ce navigateur</span><strong>{progress} %</strong></div>
+            <div><span>{persistence === "client-cloud" ? "Progression synchronisée" : "Progression dans ce navigateur"}</span><strong>{progress} %</strong></div>
             <div className="progress-track"><span className="progress-fill" style={{ width: `${progress}%` }} /></div>
-            <small>{course.lessons.length ? `${completedCount} leçon${completedCount === 1 ? "" : "s"} terminée${completedCount === 1 ? "" : "s"} sur ${course.lessons.length} dans ce navigateur.` : "Aucune leçon n’est disponible pour le moment."}</small>
+            <small>{course.lessons.length ? `${completedCount} leçon${completedCount === 1 ? "" : "s"} terminée${completedCount === 1 ? "" : "s"} sur ${course.lessons.length}${persistence === "client-cloud" ? " pour ton compte." : " dans ce navigateur."}` : "Aucune leçon n’est disponible pour le moment."}</small>
           </div>
           <p className="lp-callout">Utilise chaque leçon comme point de départ pour une conversation éclairée avec ton coach.</p>
         </aside>
