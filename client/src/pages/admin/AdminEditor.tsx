@@ -209,29 +209,49 @@ function putFile(
   uploadUrl: string,
   file: Blob,
   contentType: string,
-  onProgress: (progress: number) => void
+  onProgress: (progress: number) => void,
+  fallbackUrl?: string
 ): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const request = new XMLHttpRequest();
-    request.open("PUT", uploadUrl);
-    request.setRequestHeader("Content-Type", contentType);
-    request.upload.onprogress = event => {
-      if (event.lengthComputable) {
-        onProgress(Math.round((event.loaded / event.total) * 100));
-      }
-    };
-    request.onerror = () =>
-      reject(new Error("Le téléversement vers le stockage a échoué."));
-    request.onabort = () =>
-      reject(new Error("Le téléversement a été interrompu."));
-    request.onload = () => {
-      if (request.status >= 200 && request.status < 300) {
-        resolve();
-      } else {
-        reject(new Error("Le stockage a refusé le téléversement."));
-      }
-    };
-    request.send(file);
+  const send = (url: string, viaServer: boolean) =>
+    new Promise<void>((resolve, reject) => {
+      const request = new XMLHttpRequest();
+      request.open("PUT", url);
+      request.setRequestHeader("Content-Type", contentType);
+      if (viaServer) request.setRequestHeader("X-EJ-Upload", "1");
+      request.upload.onprogress = event => {
+        if (event.lengthComputable) {
+          onProgress(Math.round((event.loaded / event.total) * 100));
+        }
+      };
+      request.onerror = () => {
+        const error = new Error("Le téléversement vers le stockage a échoué.");
+        (error as Error & { network?: boolean }).network = true;
+        reject(error);
+      };
+      request.onabort = () =>
+        reject(new Error("Le téléversement a été interrompu."));
+      request.onload = () => {
+        if (request.status >= 200 && request.status < 300) {
+          resolve();
+          return;
+        }
+        let message = "Le stockage a refusé le téléversement.";
+        if (viaServer) {
+          try {
+            message = JSON.parse(request.responseText).error ?? message;
+          } catch {
+            // keep the generic message
+          }
+        }
+        reject(new Error(message));
+      };
+      request.send(file);
+    });
+  // Direct to storage first; if the browser can't reach it, go through this site.
+  return send(uploadUrl, false).catch(error => {
+    if (!fallbackUrl || !(error as { network?: boolean }).network) throw error;
+    onProgress(0);
+    return send(fallbackUrl, true);
   });
 }
 
@@ -477,7 +497,8 @@ function EditorContent() {
         prepared.uploadUrl,
         bytes,
         prepared.encryption ? "application/octet-stream" : contentType,
-        progress => setUploadState({ target, progress, label: file.name })
+        progress => setUploadState({ target, progress, label: file.name }),
+        `/api/admin/upload-proxy?kind=upload&id=${encodeURIComponent(prepared.id)}`
       );
       setUploadState({ target, progress: 100, label: file.name });
       return await finishUpload.mutateAsync({ id: prepared.id });
