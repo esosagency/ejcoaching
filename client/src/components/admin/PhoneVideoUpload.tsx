@@ -92,86 +92,35 @@ function getFileDuration(file: File): Promise<number | null> {
   });
 }
 
-class StorageNetworkError extends Error {
-  constructor() {
-    super("Le téléversement vers le stockage a échoué.");
-    this.name = "StorageNetworkError";
-  }
-}
-
-function sendPut(
-  url: string,
+function createPutRequest(
+  uploadUrl: string,
   file: Blob,
   contentType: string,
-  onProgress: (progress: number) => void,
-  track: (request: XMLHttpRequest) => void,
-  viaServer: boolean
+  onProgress: (progress: number) => void
 ) {
-  return new Promise<void>((resolve, reject) => {
-    const request = new XMLHttpRequest();
-    track(request);
-    request.open("PUT", url);
+  const request = new XMLHttpRequest();
+  const promise = new Promise<void>((resolve, reject) => {
+    request.open("PUT", uploadUrl);
     request.setRequestHeader("Content-Type", contentType);
-    if (viaServer) request.setRequestHeader("X-EJ-Upload", "1");
     request.upload.onprogress = event => {
       if (event.lengthComputable && event.total > 0) {
         onProgress(Math.round((event.loaded / event.total) * 100));
       }
     };
-    request.onerror = () => reject(new StorageNetworkError());
+    request.onerror = () =>
+      reject(new Error("Le téléversement vers le stockage a échoué."));
     request.onabort = () => reject(new UploadAbortedError());
     request.onload = () => {
       if (request.status >= 200 && request.status < 300) {
         resolve();
         return;
       }
-      let message = "Le stockage a refusé le téléversement.";
-      if (viaServer) {
-        try {
-          message = JSON.parse(request.responseText).error ?? message;
-        } catch {
-          // keep the generic message
-        }
-      }
-      reject(new Error(message));
+      reject(new Error("Le stockage a refusé le téléversement."));
     };
     request.send(file);
   });
-}
 
-/**
- * Sends one piece straight to storage. If the browser cannot reach storage
- * (blocked cross-origin request), the same bytes go through this site instead.
- */
-function createPutRequest(
-  uploadUrl: string,
-  file: Blob,
-  contentType: string,
-  onProgress: (progress: number) => void,
-  fallbackUrl?: string
-) {
-  let current: XMLHttpRequest | null = null;
-  let aborted = false;
-  const track = (request: XMLHttpRequest) => {
-    current = request;
-  };
-  const promise = sendPut(uploadUrl, file, contentType, onProgress, track, false).catch(
-    error => {
-      if (aborted || !(error instanceof StorageNetworkError) || !fallbackUrl)
-        throw error;
-      onProgress(0);
-      return sendPut(fallbackUrl, file, contentType, onProgress, track, true);
-    }
-  );
-  return {
-    request: {
-      abort() {
-        aborted = true;
-        current?.abort();
-      },
-    },
-    promise,
-  };
+  return { request, promise };
 }
 
 /**
@@ -206,14 +155,11 @@ export default function PhoneVideoUpload({
   const [readyRefreshAttempt, setReadyRefreshAttempt] = useState(0);
   const photosInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
-  const requestRef = useRef<{ abort(): void } | null>(null);
+  const requestRef = useRef<XMLHttpRequest | null>(null);
   const cancelledJobRef = useRef<string | null>(null);
   const notifiedReadyJobRef = useRef<string | null>(null);
   const attemptedReadyRefreshRef = useRef<string | null>(null);
   const currentLessonRef = useRef(lessonId);
-  // Always the latest lesson revision, even inside callbacks created earlier.
-  const revisionRef = useRef(revision);
-  revisionRef.current = revision;
   const currentStatus = job?.status;
   const isJobActive =
     isStarting ||
@@ -369,30 +315,13 @@ export default function PhoneVideoUpload({
     let preparedJobId: string | null = null;
     let transferComplete = false;
     try {
-      const prepareInput = {
+      const prepared = await prepare.mutateAsync({
         lessonId,
+        revision,
         filename: nextFile.name,
         contentType,
         size: nextFile.size,
-      };
-      let prepared;
-      try {
-        prepared = await prepare.mutateAsync({
-          ...prepareInput,
-          revision: revisionRef.current,
-        });
-      } catch (error) {
-        // The lesson revision changes on prepare/cancel. If our copy is stale,
-        // refresh it once and try again instead of asking for a page reload.
-        if (!(error instanceof Error) || !/modifiée/.test(error.message))
-          throw error;
-        await onJobStarted();
-        await new Promise(resolve => setTimeout(resolve, 50));
-        prepared = await prepare.mutateAsync({
-          ...prepareInput,
-          revision: revisionRef.current,
-        });
-      }
+      });
       preparedJobId = prepared.jobId;
       const nextJob: VideoJobInfo = {
         id: prepared.jobId,
@@ -428,10 +357,7 @@ export default function PhoneVideoUpload({
               index * encryption.chunkSize +
               (privatePlainChunkSize(encryption, index) * percentage) / 100;
             setProgress(Math.min(99, Math.round((sent / nextFile.size) * 100)));
-          },
-          `/api/admin/upload-proxy?kind=part&id=${encodeURIComponent(
-            prepared.jobId
-          )}&index=${index}`
+          }
         );
         requestRef.current = upload.request;
         await upload.promise;
@@ -517,9 +443,6 @@ export default function PhoneVideoUpload({
     if (cancelledJobRef.current === previousJobId) {
       cancelledJobRef.current = null;
     }
-    // Cancelling bumps the lesson revision on the server; pull the new one.
-    await onJobStarted();
-    await new Promise(resolve => setTimeout(resolve, 50));
     await startUpload(file);
   };
 

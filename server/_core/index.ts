@@ -9,7 +9,6 @@ import { contentReadiness } from "../contentDb";
 import { createContext } from "./context";
 import { startVideoWorker, stopVideoWorker } from "../video/videoWorker";
 import { registerCourseMediaRoutes } from "../courseMedia";
-import { registerUploadProxyRoute } from "../uploadProxy";
 import { serveStatic, setupVite } from "./vite";
 
 async function startServer() {
@@ -38,7 +37,6 @@ async function startServer() {
   });
   registerOAuthRoutes(app);
   registerCourseMediaRoutes(app);
-  registerUploadProxyRoute(app);
   app.use(
     "/api/trpc",
     createExpressMiddleware({ router: appRouter, createContext })
